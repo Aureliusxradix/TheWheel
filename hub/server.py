@@ -25,7 +25,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -33,10 +33,11 @@ from urllib.parse import parse_qs, urlsplit
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from hub import flyer, gate, kinds, rep, store  # noqa: E402
+from hub import flyer, gate, kinds, repeats, rep, store  # noqa: E402
 from reader import core  # noqa: E402
 
 STATIC = ROOT / "hub" / "static"
+TZ = core.HUB_TZ  # days (today, the daily caps, review days) are Auckland days, whatever the host clock says
 DATA = Path(os.environ.get("WHEEL_DATA") or ROOT / "data")  # the store's folder; the database itself: EVENTHUB_DB
 UPLOADS = DATA / "uploads"
 FLYERS = UPLOADS / "flyers"  # cleaned flyers only (hub/flyer.py); an upload as sent is never kept
@@ -70,7 +71,7 @@ CAP_TEXT = {"join": "The Wheel has taken all the new members it takes in one day
 
 
 def over_cap(kind: str) -> bool:
-    return store.count_deposit(db(), f"site:{kind}", datetime.now().date().isoformat()) > CAPS[kind]
+    return store.count_deposit(db(), f"site:{kind}", datetime.now(TZ).date().isoformat()) > CAPS[kind]
 
 
 def zk_call(method: str, path: str, query: str = "", body: bytes | None = None, admin: bool = False) -> tuple[int, bytes]:
@@ -171,18 +172,30 @@ def withheld(rec: dict) -> bool:
     return bool(h)
 
 
+def dated(r: dict, today: str) -> dict:
+    """Whether a listing is past, and a repeating one's next date: the same answer for the list and the review queue."""
+    if (r.get("recurrence") or "").strip().lower() in ("unknown", "none", "n/a"):  # the reader's filler, not a repeat
+        r.pop("recurrence")
+    end = r.get("end_date") or r["start_date"]
+    r["past"] = end < today and not r.get("recurrence")  # kept as the archive (his call, 2026-10-20)
+    nxt = repeats.next_on(r["recurrence"], r["start_date"], today) if r.get("recurrence") and end < today else None
+    if nxt:  # shown on its next date everywhere; the listing keeps the date it was found with
+        span = (date.fromisoformat(end) - date.fromisoformat(r["start_date"])).days
+        r["next_date"], r["next_end"] = nxt, (date.fromisoformat(nxt) + timedelta(days=span)).isoformat()
+    return r
+
+
 def listing(params: dict) -> dict:
     states = ("approved", "pending") if params.get("unreviewed", ["1"])[0] == "1" else ("approved",)
     all_areas = store.areas(db())
-    today = datetime.now().date().isoformat()
+    today = datetime.now(TZ).date().isoformat()
     out = []
     merged = store.merges(db())
     for r in store.events(db(), states):
         if withheld(public(r)):
             continue
         r["tags"] = kinds.apply(r.get("tags") or [], merged)  # shown merged; the listing keeps its own words
-        end = r.get("end_date") or r["start_date"]
-        r["past"] = end < today and not r.get("recurrence")  # kept as the archive (his call, 2026-10-20)
+        dated(r, today)
         r["areas"] = store.areas_for(r, all_areas)
         r["certainty"] = settle(dict(r))["certainty"]
         out.append(r)
@@ -289,7 +302,9 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/review":
             mine = self.account()
             recs = [r for r in store.events(db(), ("pending",)) if not withheld(public(dict(r)))]  # judged as it would leave
+            today = datetime.now(TZ).date().isoformat()
             for r in recs:
+                dated(r, today)
                 r["duplicates"] = store.likely_duplicates(db(), r)
                 r["certainty"] = settle(dict(r))["certainty"]
                 r["mine"] = bool(mine) and r.get("deposited_account") == mine
@@ -358,7 +373,7 @@ class Handler(BaseHTTPRequestHandler):
                 acct, t = self.need(0)
                 if acct is None:
                     return
-                day = datetime.now().date().isoformat()
+                day = datetime.now(TZ).date().isoformat()
                 # each reading costs a cent or two of AI: twice the day's deposit allowance
                 if store.count_deposit(db(), "read:" + acct, day) > 2 * rep.DAILY_DEPOSITS[t]:
                     return self.fail(429, "That's today's reading allowance. More tomorrow, or as your rep grows.")
@@ -369,7 +384,7 @@ class Handler(BaseHTTPRequestHandler):
                 acct, t = self.need(0)
                 if acct is None:
                     return
-                day = datetime.now().date().isoformat()
+                day = datetime.now(TZ).date().isoformat()
                 saved = []
                 for rec in b.get("records", []):
                     if over_cap("submit"):
@@ -406,7 +421,7 @@ class Handler(BaseHTTPRequestHandler):
                 elif action == "save":
                     return self.fail(403, "Fixing a listing's details needs the Reviewer tier. You can approve or reject it.")
                 if action in ("approve", "reject"):
-                    store.cast_review(db(), rec["id"], acct, action, rep.WEIGHT[t], datetime.now().date().isoformat())
+                    store.cast_review(db(), rec["id"], acct, action, rep.WEIGHT[t], datetime.now(TZ).date().isoformat())
                 rec = settle(rec)
                 store.put(db(), rec, rec["review"]["state"])
                 return self.send(200, {"event": public(dict(rec)), "edited": edited, "me": rep.summary(db(), acct)})

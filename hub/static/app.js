@@ -206,17 +206,20 @@ const fmtMonth = (iso) => d(iso).toLocaleDateString("en-NZ", { month: "long", ye
 const fmtDay = (iso) => d(iso).toLocaleDateString("en-NZ", { weekday: "short" });
 const fmtShort = (iso) => d(iso).toLocaleDateString("en-NZ", { weekday: "short", day: "numeric", month: "short" });
 const addDays = (iso, n) => { const x = d(iso); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+// the date a listing is on: a repeating one shows its next date (worked out by the server), never the past one it was found with
+const on = (ev) => ev.next_date || ev.start_date;
+const onEnd = (ev) => ev.next_end || ev.end_date || ev.start_date;
 const mins = (t) => (t ? +t.slice(0, 2) * 60 + +t.slice(3, 5) : null);
 
 function inRange(ev) {
   const t = state.today, r = state.range;
   if (r === "all") return true;
-  if (r === "tonight") return ev.start_date <= t && (ev.end_date || ev.start_date) >= t;
-  if (r === "week") return ev.start_date <= addDays(t, 7);
+  if (r === "tonight") return on(ev) <= t && onEnd(ev) >= t;
+  if (r === "week") return on(ev) <= addDays(t, 7);
   const dow = d(t).getDay(); // 0 Sun .. 6 Sat
   const fri = addDays(t, dow === 0 ? -2 : 5 - dow);
   const sun = addDays(fri, 2);
-  return ev.start_date <= sun && (ev.end_date || ev.start_date) >= (dow === 0 || dow === 6 ? t : fri);
+  return on(ev) <= sun && onEnd(ev) >= (dow === 0 || dow === 6 ? t : fri);
 }
 
 function lengthOf(ev) {
@@ -266,7 +269,7 @@ function renderTerms() {
     const prev = state.range;
     state.range = "week"; const week = live.filter(inRange).length; state.range = prev;
     // the next day something is on: a listing already running or repeating counts from today, never from a past date
-    const next = live.map((e) => (e.start_date < today ? today : e.start_date)).sort()[0];
+    const next = live.map((e) => (on(e) < today ? today : on(e))).sort()[0];
     terms = [["This week", week], ["Shifts open", shifts.length], ["Next", next ? (next === today ? "Today" : fmtShort(next)) : "–"]];
   } else if (state.mode === "night") {
     const prev = state.range;
@@ -327,7 +330,7 @@ function matches(ev) {
 
 function when(ev) {
   let s = ev.start_time ? (ev.end_time ? `${ev.start_time}–${ev.end_time}` : `from ${ev.start_time}`) : "Time not given";
-  if (ev.end_date && ev.end_date !== ev.start_date) s += `, until ${d(ev.end_date).toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}`;
+  if (onEnd(ev) !== on(ev)) s += `, until ${d(onEnd(ev)).toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}`;
   return s;
 }
 
@@ -345,11 +348,12 @@ function eventRow(ev, i = 0) {
   const chips = [];
   if (volunteer) chips.push(`<span class="chip strong">Helpers wanted</span>`);
   if (ev.recurrence) chips.push(`<span class="chip">Repeats: ${esc(ev.recurrence.slice(0, 50))}</span>`);
+  if (ev.recurrence && !ev.next_date && onEnd(ev) < state.today) chips.push(`<span class="chip">Next date: check the link</span>`);
   if ((ev.modes || []).includes("recovery") && state.mode !== "recovery") chips.push(`<span class="chip">Recovery</span>`);
   (ev.areas || []).forEach((a) => chips.push(`<span class="chip">${esc(a)}</span>`));
   (ev.tags || []).slice(0, 4).forEach((t) => chips.push(`<span class="chip">${esc(t)}</span>`));
   const src = ev.website || ev.source?.url;  // where to sign up: the organiser's page first
-  const dt = d(ev.start_date);
+  const dt = d(on(ev));
   const pct = (x) => `${Math.round((x || 0) * 100)}%`;
   const c = ev.certainty || {};
   const status = ev.status && ev.status !== "confirmed"
@@ -357,7 +361,7 @@ function eventRow(ev, i = 0) {
     : unreviewed ? `<span class="state" title="${c.reviews || 0} review(s) so far">waiting${c.reviews ? ` · ${pct(c.for)}` : ""}</span>`
       : `<span class="state ok" title="How sure the reviewers are, weighted by their rep">√ checked · ${pct(c.for)}</span>`;
   return `<article class="ev k${i % 3}${volunteer ? " volunteer" : ""}${ev.past ? " past" : ""}" id="ev-${ev.id}">
-    <span class="n">${dt.getDate()} ${dt.toLocaleDateString("en-NZ", { month: "short" })}<small>${fmtDay(ev.start_date)}</small></span>
+    <span class="n">${dt.getDate()} ${dt.toLocaleDateString("en-NZ", { month: "short" })}<small>${fmtDay(on(ev))}</small></span>
     <div class="ev-main">
       <button type="button" class="ev-name" aria-expanded="false" data-open="${ev.id}">${esc(ev.name)}</button>
       <div class="meta"><span>${esc(when(ev))}</span>${where ? `<span>${esc(where)}</span>` : ""}${ev.price ? `<span>${esc(ev.price)}</span>` : ""}</div>
@@ -371,7 +375,7 @@ function eventRow(ev, i = 0) {
         ${ev.description ? `<p>${esc(ev.description)}</p>` : ""}
         ${ev.organiser ? `<div>Organised by ${esc(ev.organiser)}</div>` : ""}
         ${whereFrom(ev)}
-        ${ev.past ? "" : `<div class="checkin" data-event="${ev.id}" data-label="${esc(ev.name)}, ${esc(ev.start_date)}">
+        ${ev.past ? "" : `<div class="checkin" data-event="${ev.id}" data-label="${esc(ev.name)}, ${esc(on(ev))}">
           <label for="code-${ev.id}">At the event? Enter the door code</label>
           <div class="keyrow"><input id="code-${ev.id}" type="text" maxlength="6" autocomplete="off" spellcheck="false" placeholder="A1B2C3"><button type="button" class="quiet" data-checkin="1">I'm here</button></div>
           <p class="status" role="status"></p></div>`}
@@ -383,7 +387,7 @@ function eventRow(ev, i = 0) {
 function grouped(list) {
   let html = "", month = "", i = 0;
   for (const ev of list) {
-    const m = fmtMonth(ev.start_date);
+    const m = fmtMonth(on(ev));
     if (m !== month) { html += `<h2 class="month">${m}</h2>`; month = m; }
     html += eventRow(ev, i++);
   }
@@ -391,7 +395,7 @@ function grouped(list) {
 }
 
 function renderList() {
-  const key = (e) => e.start_date + (e.start_time || "");
+  const key = (e) => on(e) + (e.start_time || "");
   const shown = state.events.filter(matches);
   const upcoming = shown.filter((e) => !e.past).sort((a, b) => key(a).localeCompare(key(b)));
   const past = $("#archive").checked ? shown.filter((e) => e.past).sort((a, b) => key(b).localeCompare(key(a))) : [];
@@ -562,8 +566,9 @@ function reviewCard(ev) {
   const where = [ev.location_name, ev.location_locality && !(ev.location_name || "").includes(ev.location_locality) ? ev.location_locality : null].filter(Boolean).join(", ");
   // compact first: what to check, and the two answers; the editor waits behind "Fix details" (2026-10-20, Finishing what's here)
   return `<div class="card rv" data-id="${ev.id}">
-      <div class="rv-when">${esc(fmtDay(ev.start_date))} ${esc(d(ev.start_date).getDate())} ${esc(d(ev.start_date).toLocaleDateString("en-NZ", { month: "short" }))} · ${esc(when(ev))}</div>
+      <div class="rv-when">${esc(fmtDay(on(ev)))} ${esc(d(on(ev)).getDate())} ${esc(d(on(ev)).toLocaleDateString("en-NZ", { month: "short" }))} · ${esc(when(ev))}</div>
       <h2>${esc(ev.name)}</h2>
+      ${ev.recurrence ? `<div class="rv-where">Repeats: ${esc(ev.recurrence)}${ev.next_date ? ` (shown on its next date; found for ${esc(fmtShort(ev.start_date))})` : ""}</div>` : ""}
       ${where || ev.price ? `<div class="rv-where">${esc([where, ev.price].filter(Boolean).join(" · "))}</div>` : ""}
       ${modeNames ? `<div class="rv-where">Shows in: ${esc(modeNames)}${ev.extraction?.modes_by ? " (set by a batch pass)" : ""}</div>` : ""}
       <div class="source">${src ? `Check it against <a href="${esc(src)}" target="_blank" rel="noopener">the page it came from</a>.` : ev.source?.flyer ? "Read from a flyer. Check the listing against the flyer; the flyer goes out with it." : ev.website ? `Pasted in. Check it against <a href="${esc(ev.website)}" target="_blank" rel="noopener">the organiser's page</a>.` : "Pasted in, with no page to check against."}</div>
@@ -583,13 +588,13 @@ function reviewCard(ev) {
 }
 
 let reviewQueue = [], reviewMode = "";
-const isPast = (ev) => !ev.recurrence && (ev.end_date || ev.start_date) < new Date().toLocaleDateString("en-CA");
+const isPast = (ev) => !!ev.past;  // the server's call, the same one the list makes
 function renderReview() {
   const q = ($("#rq").value || "").trim().toLowerCase();
   const shown = reviewQueue.filter((ev) => (!reviewMode || (ev.modes || []).includes(reviewMode)) && (!q || q.split(/\s+/).every((w) =>
     [ev.name, ev.location_name, ev.location_locality, ev.start_date, ev.source?.url, ...(ev.tags || []), ...(ev.modes || [])].join(" ").toLowerCase().includes(w))));
   // soonest first; your own last; what already happened set aside
-  const order = (a, b) => (a.mine - b.mine) || (a.start_date + (a.start_time || "")).localeCompare(b.start_date + (b.start_time || ""));
+  const order = (a, b) => (a.mine - b.mine) || (on(a) + (a.start_time || "")).localeCompare(on(b) + (b.start_time || ""));
   const upcoming = shown.filter((e) => !isPast(e)).sort(order);
   const past = shown.filter(isPast).sort(order);
   const open = upcoming.filter((e) => !e.mine).length;
