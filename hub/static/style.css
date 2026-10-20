@@ -279,3 +279,29 @@ select { width: auto; }
 [data-look="recovery"] .more-panel { background: #062F5E; }
 [data-look="day"] .more-panel { border: 2px solid #17191A; }
 .prose h3.rm-group { font-size: .95rem; margin: 1.4rem 0 .6rem; color: var(--ink); }
+
+/* review, compact (2026-10-20): what to check first, the editor behind "Fix details" */
+.rv h2 { margin: .1rem 0 .2rem; }
+.rv-when { font-size: .78rem; letter-spacing: .08em; color: var(--dim); }
+.rv-where { color: var(--dim); font-size: .9rem; margin-bottom: .3rem; }
+.rv .actions { margin-top: .6rem; }
+.rv-edit { margin-top: .8rem; padding-top: .6rem; border-top: 1px solid var(--soft-rule); }
+.rq-modes { margin: .6rem 0 .2rem; }
+.rq-past { margin-top: 1.6rem; }
+.rq-past summary { cursor: pointer; color: var(--dim); }
+
+/* phones (2026-10-20, Finishing what's here): the mode figures stay three across; tables marked .stack become labelled rows */
+@media (max-width: 640px) {
+  .terms { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .term + .term { border-top: 0; border-left: 1px solid var(--rule); }
+  [data-look="day"] .term + .term { border-left: 2px solid #17191A; }
+  .term { padding: .55rem .6rem; }
+  .term .k { font-size: .6rem; letter-spacing: .1em; }
+  .term .v { font-size: 1.15rem; }
+  .compare.stack { min-width: 0; width: 100%; }
+  .compare.stack thead { display: none; }
+  .compare.stack tr { display: block; padding: .6rem 0; border-bottom: 1px solid var(--soft-rule); }
+  .compare.stack th, .compare.stack td { display: grid; grid-template-columns: 8.5rem 1fr; gap: .6rem; border: 0; padding: .15rem 0; }
+  .compare.stack [data-label]::before { content: attr(data-label); color: var(--dim); font-weight: 400; }
+}
+.claims.plans li.done::before { content: "√"; color: var(--accent); }

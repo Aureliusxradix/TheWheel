@@ -81,10 +81,15 @@
 
   <section id="view-review" class="view" aria-labelledby="h-review" hidden>
     <h1 id="h-review">Review</h1>
-    <p class="lede">Each listing waits here until someone checks it against its source. Approve it, fix it first, or reject it.</p>
+    <p class="lede">Each listing waits here until someone checks it against its source. Open the source, then say whether the listing matches it.</p>
     <label class="search"><span class="sr-only">Search the review list</span>
       <input id="rq" type="search" placeholder="Find one to review: name, place, date…" autocomplete="off"></label>
+    <div class="chips rq-modes" role="group" aria-label="Show listings for">
+      <button type="button" class="tag on" data-rqmode="">All</button><button type="button" class="tag" data-rqmode="day">Day</button><button type="button" class="tag" data-rqmode="night">Night</button><button type="button" class="tag" data-rqmode="recovery">Recovery</button>
+    </div>
+    <p class="hint" id="rq-count" role="status"></p>
     <div id="review-list"></div>
+    <details class="rq-past" id="rq-past" hidden><summary id="rq-past-label"></summary><div id="review-past"></div></details>
   </section>
 
   <section id="view-areas" class="view" aria-labelledby="h-areas" hidden>
@@ -157,7 +162,7 @@
     <h2>Finishing what's here</h2>
     <p class="hint">First, before new features: the tools that are live, made smooth.</p>
     <ul class="claims plans">
-      <li><b>Review that is quick to work through.</b> Soonest events first, past ones set aside, search by name, place or date, and a review button on every listing.</li>
+      <li class="done"><b>Review that is quick to work through.</b> Soonest events first, past ones set aside, search by name, place or date, a filter by mode, and the two answers on each card. Done 20 October.</li>
       <li><b>Kinds kept tidy.</b> Near-twin kinds (exhibition, art exhibition, exhibition opening) suggested for merging, with a person saying yes to each.</li>
       <li><b>Listings that read the same everywhere.</b> Dates, times, links and flyers shown the same way in every mode.</li>
       <li><b>A steadier reader.</b> A volunteer call read into the same shifts every time.</li>
@@ -238,13 +243,13 @@
 
     <h2>The four tiers</h2>
     <div class="compare-wrap">
-      <table class="compare">
+      <table class="compare stack">
         <thead><tr><th scope="col">Tier</th><th scope="col">How you get there</th><th scope="col">What it opens</th><th scope="col">A review counts</th></tr></thead>
         <tbody>
-          <tr><th scope="row">New</th><td>Join on the Me page</td><td>Add up to 3 listings a day, review any listing</td><td>20%</td></tr>
-          <tr><th scope="row">Regular</th><td>10 points and 14 days</td><td>Up to 10 listings a day</td><td>40%</td></tr>
-          <tr><th scope="row">Reviewer</th><td>30 points</td><td>Fix a listing's details while reviewing</td><td>70%</td></tr>
-          <tr><th scope="row">Steward</th><td>Named by two stewards</td><td>Areas, opening check-ins at events</td><td>90%</td></tr>
+          <tr><th scope="row" data-label="Tier">New</th><td data-label="How you get there">Join on the Me page</td><td data-label="What it opens">Add up to 3 listings a day, review any listing</td><td data-label="A review counts">20%</td></tr>
+          <tr><th scope="row" data-label="Tier">Regular</th><td data-label="How you get there">10 points and 14 days</td><td data-label="What it opens">Up to 10 listings a day</td><td data-label="A review counts">40%</td></tr>
+          <tr><th scope="row" data-label="Tier">Reviewer</th><td data-label="How you get there">30 points</td><td data-label="What it opens">Fix a listing's details while reviewing</td><td data-label="A review counts">70%</td></tr>
+          <tr><th scope="row" data-label="Tier">Steward</th><td data-label="How you get there">Named by two stewards</td><td data-label="What it opens">Areas, opening check-ins at events</td><td data-label="A review counts">90%</td></tr>
         </tbody>
       </table>
     </div>

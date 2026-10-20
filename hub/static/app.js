@@ -255,9 +255,13 @@ function renderTerms() {
   const live = state.events.filter((e) => inMode(e) && !e.past);
   let terms;
   if (state.mode === "day") {
-    const shifts = live.flatMap((e) => (e.listing_kind === "volunteer" ? e.slots || [] : []));
-    const next = live.map((e) => e.start_date).sort()[0];
-    terms = [["Shifts open", shifts.length], ["People needed", shifts.reduce((n, s) => n + (s.needed || 0), 0)], ["Next", next ? fmtShort(next) : "–"]];
+    const today = new Date().toLocaleDateString("en-CA");
+    const shifts = live.flatMap((e) => (e.listing_kind === "volunteer" ? e.slots || [] : [])).filter((s) => s.date >= today);
+    const prev = state.range;
+    state.range = "week"; const week = live.filter(inRange).length; state.range = prev;
+    // the next day something is on: a listing already running or repeating counts from today, never from a past date
+    const next = live.map((e) => (e.start_date < today ? today : e.start_date)).sort()[0];
+    terms = [["This week", week], ["Shifts open", shifts.length], ["Next", next ? (next === today ? "Today" : fmtShort(next)) : "–"]];
   } else if (state.mode === "night") {
     const prev = state.range;
     const count = (r) => { state.range = r; const n = live.filter(inRange).length; state.range = prev; return n; };
@@ -541,38 +545,59 @@ function reviewCard(ev) {
   const src = ev.source?.url;
   const c = ev.certainty || { for: 0, against: 0, reviews: 0 };
   const pct = (x) => `${Math.round(x * 100)}%`;
-  const sure = c.reviews ? `${c.reviews} review${c.reviews > 1 ? "s" : ""} so far: ${pct(c.for)} sure it's right, ${pct(c.against)} sure it's wrong. It settles at 70%.` : "No reviews yet.";
-  const notes = [ev.extraction?.confidence_notes, ev.extraction?.modes_by ? "Modes set by a batch pass; check them." : null].filter(Boolean).join(" ");
-  return `<div class="card" data-id="${ev.id}">
+  const sure = c.reviews ? `${c.reviews} review${c.reviews > 1 ? "s" : ""}: ${pct(c.for)} sure it's right, ${pct(c.against)} sure it's wrong. It settles at 70%.` : "No reviews yet.";
+  const notes = ev.extraction?.confidence_notes || "";
+  const canFix = reviewMe && reviewMe.tier >= 2;
+  const modeNames = (ev.modes || []).map((m) => MODES[m]?.title || m).join(", ");
+  const where = [ev.location_name, ev.location_locality && !(ev.location_name || "").includes(ev.location_locality) ? ev.location_locality : null].filter(Boolean).join(", ");
+  // compact first: what to check, and the two answers; the editor waits behind "Fix details" (2026-10-20, Finishing what's here)
+  return `<div class="card rv" data-id="${ev.id}">
+      <div class="rv-when">${esc(fmtDay(ev.start_date))} ${esc(d(ev.start_date).getDate())} ${esc(d(ev.start_date).toLocaleDateString("en-NZ", { month: "short" }))} · ${esc(when(ev))}</div>
       <h2>${esc(ev.name)}</h2>
-      <div class="source">${src ? `Read from <a href="${esc(src)}" target="_blank" rel="noopener">${esc(src)}</a>.` : ev.source?.flyer ? "Read from a flyer. Check the flyer as well as the listing: it goes out with it." : "Pasted in."}</div>
+      ${where || ev.price ? `<div class="rv-where">${esc([where, ev.price].filter(Boolean).join(" · "))}</div>` : ""}
+      ${modeNames ? `<div class="rv-where">Shows in: ${esc(modeNames)}${ev.extraction?.modes_by ? " (set by a batch pass)" : ""}</div>` : ""}
+      <div class="source">${src ? `Check it against <a href="${esc(src)}" target="_blank" rel="noopener">the page it came from</a>.` : ev.source?.flyer ? "Read from a flyer. Check the listing against the flyer; the flyer goes out with it." : ev.website ? `Pasted in. Check it against <a href="${esc(ev.website)}" target="_blank" rel="noopener">the organiser's page</a>.` : "Pasted in, with no page to check against."}</div>
       ${flyerImg(ev)}
-      ${!ev.website && !src ? `<div class="warn">No link yet: it goes out marked "no page online". If you know the organiser's page or post, add it below${reviewMe && reviewMe.tier >= 2 ? "" : " (fixing details opens at the Reviewer tier)"}.</div>` : ""}
-      <div class="source">${esc(sure)}${ev.my_verdict ? ` You said: ${ev.my_verdict === "approve" ? "right" : "wrong"}.` : ""}</div>
+      ${!ev.website && !src ? `<div class="warn">No link yet: it goes out marked "no page online".${canFix ? " Add the organiser's page under Fix details if you know it." : ""}</div>` : ""}
       ${notes ? `<div class="warn">${esc(notes)}</div>` : ""}${dupWarn(ev)}
-      ${editorHtml(ev, `r-${ev.id}`)}
+      <div class="source">${esc(sure)}${ev.my_verdict ? ` You said: ${ev.my_verdict === "approve" ? "right" : "wrong"}.` : ""}</div>
       ${ev.mine ? `<p class="hint">You added this one, so someone else checks it.</p>` : `<div class="actions"><button type="button" class="primary" data-act="approve">It's right</button>
       <button type="button" class="danger" data-act="reject">It's wrong</button>
-      ${reviewMe && reviewMe.tier >= 2 ? `<button type="button" class="quiet" data-act="save">Save my fixes</button>` : ""}
+      ${canFix ? `<button type="button" class="quiet" data-fix="1" aria-expanded="false">Fix details</button>` : ""}
       ${reviewMe && reviewMe.tier >= 3 ? `<button type="button" class="quiet" data-opencheckin="${ev.id}">Open check-in</button>` : ""}</div>`}
+      ${canFix && !ev.mine ? `<div class="rv-edit" hidden>${editorHtml(ev, `r-${ev.id}`)}
+        <div class="actions"><button type="button" class="quiet" data-act="save">Save my fixes</button></div>
+        <p class="hint">"It's right" also saves what you changed here.</p></div>` : ""}
       <div class="door"></div>
-      ${reviewMe && reviewMe.tier < 2 ? `<p class="hint">Your review counts for ${Math.round((({0:.2,1:.4,2:.7,3:.9})[reviewMe.tier]) * 100)}% as a ${esc(reviewMe.tier_name)}. Fixing details opens at the Reviewer tier.</p>` : ""}</div>`;
+      ${reviewMe && reviewMe.tier < 2 && !ev.mine ? `<p class="hint">Your review counts for ${Math.round((({0:.2,1:.4,2:.7,3:.9})[reviewMe.tier]) * 100)}% as a ${esc(reviewMe.tier_name)}. Fixing details opens at the Reviewer tier. <a href="#rep">How rep works</a>.</p>` : ""}</div>`;
 }
 
-let reviewQueue = [];
+let reviewQueue = [], reviewMode = "";
+const isPast = (ev) => !ev.recurrence && (ev.end_date || ev.start_date) < new Date().toLocaleDateString("en-CA");
 function renderReview() {
   const q = ($("#rq").value || "").trim().toLowerCase();
-  const shown = reviewQueue.filter((ev) => !q || q.split(/\s+/).every((w) =>
-    [ev.name, ev.location_name, ev.location_locality, ev.start_date, ev.source?.url, ...(ev.tags || []), ...(ev.modes || [])].join(" ").toLowerCase().includes(w)));
-  $("#review-list").innerHTML = shown.length ? shown.map(reviewCard).join("")
-    : reviewQueue.length ? `<p class="empty">Nothing in the queue matches. Clear the search.</p>`
+  const shown = reviewQueue.filter((ev) => (!reviewMode || (ev.modes || []).includes(reviewMode)) && (!q || q.split(/\s+/).every((w) =>
+    [ev.name, ev.location_name, ev.location_locality, ev.start_date, ev.source?.url, ...(ev.tags || []), ...(ev.modes || [])].join(" ").toLowerCase().includes(w))));
+  // soonest first; your own last; what already happened set aside
+  const order = (a, b) => (a.mine - b.mine) || (a.start_date + (a.start_time || "")).localeCompare(b.start_date + (b.start_time || ""));
+  const upcoming = shown.filter((e) => !isPast(e)).sort(order);
+  const past = shown.filter(isPast).sort(order);
+  const open = upcoming.filter((e) => !e.mine).length;
+  $("#rq-count").textContent = reviewQueue.length ? `${open} coming up to check${past.length ? `, ${past.length} already happened` : ""}.` : "";
+  $("#review-list").innerHTML = upcoming.length ? upcoming.map(reviewCard).join("")
+    : reviewQueue.length ? `<p class="empty">Nothing coming up matches. Clear the search or pick All.</p>`
     : `<p class="empty">Nothing waiting. New listings land here when someone adds them.</p>`;
+  $("#rq-past").hidden = !past.length;
+  $("#rq-past-label").textContent = `Already happened (${past.length}): check these last, or mark them wrong`;
+  $("#review-past").innerHTML = $("#rq-past").open ? past.map(reviewCard).join("") : "";
+  $("#rq-past").ontoggle = () => { $("#review-past").innerHTML = $("#rq-past").open ? past.map(reviewCard).join("") : ""; };
 }
 
 async function inlineReview(id, btn) {
   const box = $(".inline-card", btn.closest(".ev-main"));
   if (!box.hidden) { box.hidden = true; box.innerHTML = ""; return; }
-  const { events } = await api("/api/review");
+  const { events, me } = await api("/api/review");
+  reviewMe = me;  // the card's tools depend on the reviewer's tier
   const ev = events.find((e) => e.id === id);
   if (!ev) { toast("Already reviewed. Reloading the list."); loadEvents(); return; }
   box.innerHTML = reviewCard(ev);
@@ -746,6 +771,8 @@ document.addEventListener("click", (e) => {
   if (t.dataset.send) sendFound(t.dataset.send);
   if (t.dataset.drop) $(`.card[data-i="${t.dataset.drop}"]`).remove();
   if (t.dataset.act) review(t.closest(".card"), t.dataset.act);
+  if (t.dataset.fix) { const ed = $(".rv-edit", t.closest(".card")); ed.hidden = !ed.hidden; t.setAttribute("aria-expanded", String(!ed.hidden)); }
+  if (t.dataset.rqmode !== undefined) { reviewMode = t.dataset.rqmode; $$("[data-rqmode]").forEach((b) => b.classList.toggle("on", b === t)); renderReview(); }
   if (t.dataset.inline) inlineReview(t.dataset.inline, t).catch((err) => toast(err.message));
   if (t.dataset.addslot) $(".slots", t.closest(".shift-editor")).insertAdjacentHTML("beforeend", slotRow());
   if (t.dataset.dropslot) t.closest(".slot").remove();
