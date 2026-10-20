@@ -33,7 +33,7 @@ from urllib.parse import parse_qs, urlsplit
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from hub import flyer, gate, rep, store  # noqa: E402
+from hub import flyer, gate, kinds, rep, store  # noqa: E402
 from reader import core  # noqa: E402
 
 STATIC = ROOT / "hub" / "static"
@@ -176,9 +176,11 @@ def listing(params: dict) -> dict:
     all_areas = store.areas(db())
     today = datetime.now().date().isoformat()
     out = []
+    merged = store.merges(db())
     for r in store.events(db(), states):
         if withheld(public(r)):
             continue
+        r["tags"] = kinds.apply(r.get("tags") or [], merged)  # shown merged; the listing keeps its own words
         end = r.get("end_date") or r["start_date"]
         r["past"] = end < today and not r.get("recurrence")  # kept as the archive (his call, 2026-10-20)
         r["areas"] = store.areas_for(r, all_areas)
@@ -300,6 +302,17 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, {"me": rep.summary(db(), acct) if acct else None})
         if u.path == "/api/areas":
             return self.send(200, {"areas": store.areas(db())})
+        if u.path == "/api/kinds":  # stewards: near-twin kinds to merge or keep apart
+            acct, t = self.need(3)
+            if acct is None:
+                return
+            merged = store.merges(db())
+            counts: dict[str, int] = {}
+            for r in store.events(db(), ("approved", "pending")):
+                for tg in kinds.apply(r.get("tags") or [], merged):
+                    counts[tg] = counts.get(tg, 0) + 1
+            return self.send(200, {"suggestions": kinds.suggest(counts, store.kept_apart(db())), "kinds": len(counts),
+                                   "merged": [{"alias": a, "canonical": c} for a, c in sorted(merged.items())]})
         m = re.fullmatch(r"/api/flyer/([0-9a-f]{16}\.webp)", u.path)
         if m:
             f = FLYERS / m.group(1)
@@ -397,6 +410,20 @@ class Handler(BaseHTTPRequestHandler):
                 rec = settle(rec)
                 store.put(db(), rec, rec["review"]["state"])
                 return self.send(200, {"event": public(dict(rec)), "edited": edited, "me": rep.summary(db(), acct)})
+            if u.path == "/api/kinds":
+                acct, t = self.need(3)  # merging kinds: stewards, a person saying yes to each (his ruling)
+                if acct is None:
+                    return
+                a, k = str(b.get("merge") or "").strip().lower(), str(b.get("keep") or "").strip().lower()
+                if b.get("action") == "merge" and a and k:
+                    store.merge_tag(db(), a, k)
+                elif b.get("action") == "keep" and a and k:
+                    store.keep_apart(db(), a, k)
+                elif b.get("action") == "undo" and a:
+                    store.unmerge_tag(db(), a)
+                else:
+                    return self.fail(400, "Pick merge, keep apart or undo, with the two kinds.")
+                return self.send(200, {"ok": True})
             if u.path == "/api/areas" or u.path.startswith("/api/areas/"):
                 acct, t = self.need(3)  # areas: stewards only for now
                 if acct is None:

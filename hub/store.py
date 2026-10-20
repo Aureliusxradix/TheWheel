@@ -44,6 +44,8 @@ def connect() -> sqlite3.Connection:
       weight REAL NOT NULL, day TEXT NOT NULL, PRIMARY KEY (listing_id, account));
     CREATE TABLE IF NOT EXISTS deposit_counts (account TEXT NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL,
       PRIMARY KEY (account, day));
+    CREATE TABLE IF NOT EXISTS tag_merges (alias TEXT PRIMARY KEY, canonical TEXT NOT NULL, day TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS tag_kept (a TEXT NOT NULL, b TEXT NOT NULL, day TEXT NOT NULL, PRIMARY KEY (a, b));
     """)
     cols = {r["name"] for r in db.execute("PRAGMA table_info(events)")}
     for col in ("deposited_account TEXT", "deposit_day TEXT"):  # pen names, day only: no clock times
@@ -97,6 +99,40 @@ def reviews_for(db, listing_id: str) -> list[dict]:
 def get(db, eid: str) -> dict | None:
     row = db.execute("SELECT body FROM events WHERE id=?", (eid,)).fetchone()
     return json.loads(row["body"]) if row else None
+
+
+def merges(db) -> dict[str, str]:
+    """alias -> the kind kept, chains followed (a -> b -> c reads a -> c)."""
+    m = {r["alias"]: r["canonical"] for r in db.execute("SELECT alias, canonical FROM tag_merges")}
+    def end(t, seen=()):
+        return end(m[t], seen + (t,)) if t in m and t not in seen else t
+    return {a: end(a) for a in m}
+
+
+def merge_tag(db, alias: str, canonical: str):
+    if merges(db).get(canonical, canonical) == alias or alias == canonical:
+        raise ValueError("Those two are already one kind.")
+    with _lock:
+        db.execute("INSERT INTO tag_merges VALUES(?,?,date('now','localtime')) ON CONFLICT(alias) DO UPDATE SET canonical=excluded.canonical",
+                   (alias, canonical))
+        db.commit()
+
+
+def unmerge_tag(db, alias: str):
+    with _lock:
+        db.execute("DELETE FROM tag_merges WHERE alias=?", (alias,))
+        db.commit()
+
+
+def keep_apart(db, a: str, b: str):
+    a, b = sorted((a, b))
+    with _lock:
+        db.execute("INSERT OR IGNORE INTO tag_kept VALUES(?,?,date('now','localtime'))", (a, b))
+        db.commit()
+
+
+def kept_apart(db) -> set[tuple[str, str]]:
+    return {(r["a"], r["b"]) for r in db.execute("SELECT a, b FROM tag_kept")}
 
 
 def flyer_in_use(db, name: str) -> bool:

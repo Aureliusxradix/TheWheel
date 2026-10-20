@@ -305,3 +305,15 @@ select { width: auto; }
   .compare.stack [data-label]::before { content: attr(data-label); color: var(--dim); font-weight: 400; }
 }
 .claims.plans li.done::before { content: "√"; color: var(--accent); }
+.kinds-list li { align-items: center; }
+.kinds-list .actions { display: flex; gap: .4rem; flex-wrap: wrap; }
+
+/* favourite kinds (2026-10-20): a star beside each kind, kept in this browser */
+.kchip { display: inline-flex; align-items: stretch; }
+.kchip .tag { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.kchip .star { font: inherit; font-size: .9rem; line-height: 1; padding: 0 .45rem; cursor: pointer; background: transparent; color: var(--dim);
+  border: 1px solid var(--soft-rule); border-left: 0; border-radius: 0 calc(var(--radius) / 2) calc(var(--radius) / 2) 0; }
+[data-look="day"] .kchip .star { border: 2px solid #17191A; border-left: 0; background: #FFFFFF; color: #17191A; }
+.kchip .star.on { color: var(--accent); }
+[data-look="day"] .kchip .star.on { background: #17191A; color: #D7FF3A; }
+.tag.mine { font-weight: 600; }

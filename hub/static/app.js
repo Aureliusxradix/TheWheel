@@ -7,7 +7,13 @@ if (new URLSearchParams(location.search).has("shot")) { const i = new Image(); i
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const state = { events: [], areas: [], today: "", mode: "night", range: "all", kind: null, area: null, facet: null, allKinds: false };
+const state = { events: [], areas: [], today: "", mode: "night", range: "all", kind: null, area: null, facet: null, allKinds: false, favOnly: false };
+
+/* Favourite kinds (his ask 2026-10-20: "personalisation of tags, as in a favorite system"). Kept in this browser only:
+   The Wheel never learns what anyone favours. Starred kinds come first, and "My kinds" shows only listings with them. */
+const FAVS_KEY = "wheel.favkinds";
+const favs = new Set((() => { try { return JSON.parse(localStorage.getItem(FAVS_KEY) || "[]"); } catch { return []; } })());
+function saveFavs() { try { localStorage.setItem(FAVS_KEY, JSON.stringify([...favs])); } catch {} }
 
 /* Each mode is its own view: its own look, its own words, its own way of finding. */
 const MODES = {
@@ -293,11 +299,14 @@ function renderChips() {
   $("#facet-row").innerHTML = m.facetLabel ? chipRow(m.facetLabel, facets, "facet", state.facet) : "";
   const tc = {};
   live.forEach((e) => (e.tags || []).forEach((t) => (tc[t] = (tc[t] || 0) + 1)));
-  const all = Object.entries(tc).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  const kinds = state.allKinds ? all : all.slice(0, 10);
+  const all = Object.entries(tc).sort((a, b) => favs.has(b[0]) - favs.has(a[0]) || b[1] - a[1] || a[0].localeCompare(b[0]));
+  const starred = all.filter(([t]) => favs.has(t)).length;
+  const kinds = state.allKinds ? all : all.slice(0, Math.max(10, starred));
   if (state.kind && !kinds.some(([t]) => t === state.kind)) { const k = all.find(([t]) => t === state.kind); if (k) kinds.push(k); }
-  const more = all.length > 10 ? `<button type="button" class="linklike" data-morekinds="1">${state.allKinds ? "Fewer kinds" : `All ${all.length} kinds`}</button>` : "";
-  $("#kind-row").innerHTML = chipRow("Kinds", kinds, "kind", state.kind, more);
+  const more = all.length > kinds.length || state.allKinds ? `<button type="button" class="linklike" data-morekinds="1">${state.allKinds ? "Fewer kinds" : `All ${all.length} kinds`}</button>` : "";
+  const mine = favs.size ? `<button type="button" class="tag mine${state.favOnly ? " on" : ""}" data-favfilter="1" aria-pressed="${state.favOnly}">★ My kinds</button>` : "";
+  $("#kind-row").innerHTML = `<span class="rowlabel">Kinds</span>${mine}` + kinds.map(([t, n]) =>
+    `<span class="kchip"><button type="button" class="tag${state.kind === t ? " on" : ""}" data-kind="${esc(t)}">${esc(t)}<small>${n}</small></button><button type="button" class="star${favs.has(t) ? " on" : ""}" data-fav="${esc(t)}" aria-pressed="${favs.has(t)}" aria-label="${favs.has(t) ? "Remove from" : "Add to"} my kinds: ${esc(t)}">${favs.has(t) ? "★" : "☆"}</button></span>`).join("") + more;
   $("#area-row").innerHTML = chipRow("Areas", state.areas.map((a) => [a.name, null]), "area", state.area);
 }
 
@@ -305,6 +314,7 @@ function matches(ev) {
   if (!inMode(ev)) return false;
   const q = $("#q").value.trim().toLowerCase();
   if (state.kind && !(ev.tags || []).includes(state.kind)) return false;
+  if (state.favOnly && !(ev.tags || []).some((t) => favs.has(t))) return false;
   if (state.area && !(ev.areas || []).includes(state.area)) return false;
   if (state.facet && state.mode === "day" && !helpWith(ev).includes(state.facet)) return false;
   if (state.facet && state.mode === "recovery" && lengthOf(ev) !== state.facet) return false;
@@ -662,6 +672,24 @@ async function loadAreas() {
   }
 }
 
+const WHY = { same: "the same words", close: "one letter apart", inside: "one sits inside the other" };
+async function loadKinds() {
+  const box = $("#kinds-tidy");
+  let k;
+  try { k = await api("/api/kinds"); } catch (e) { box.innerHTML = `<p class="hint">Stewards tidy the kinds. ${esc(e.message)}</p>`; return; }
+  const rows = k.suggestions.map((s) => `<li><span><b>${esc(s.merge)}</b> (${s.n_merge}) into <b>${esc(s.keep)}</b> (${s.n_keep}), ${WHY[s.why]}</span>
+    <span class="actions"><button type="button" class="quiet" data-kmerge="${esc(s.merge)}" data-kkeep="${esc(s.keep)}">Merge</button>
+    <button type="button" class="quiet" data-kapart="${esc(s.merge)}" data-kkeep="${esc(s.keep)}">Keep apart</button></span></li>`).join("");
+  const done = k.merged.map((m) => `<li><span><b>${esc(m.alias)}</b> shows as <b>${esc(m.canonical)}</b></span>
+    <button type="button" class="quiet" data-kundo="${esc(m.alias)}">Undo</button></li>`).join("");
+  box.innerHTML = `<p class="hint">${k.kinds} kinds in use, ${k.suggestions.length} suggestion${k.suggestions.length === 1 ? "" : "s"}.</p>
+    ${rows ? `<ul class="area-list kinds-list">${rows}</ul>` : `<p class="hint">Nothing to suggest right now.</p>`}
+    ${done ? `<h3 class="rm-group">Merged</h3><ul class="area-list kinds-list">${done}</ul>` : ""}`;
+}
+async function kindsAct(body, msg) {
+  try { await api("/api/kinds", body); toast(msg); loadKinds(); } catch (e) { toast(e.message); }
+}
+
 async function saveArea(e) {
   e.preventDefault();
   const status = $("#area-status");
@@ -740,7 +768,7 @@ function route() {
   $("#events-link").setAttribute("href", `#${state.mode}`);
   if (isMode) loadEvents().catch((e) => ($("#list").innerHTML = `<p class="empty">${esc(e.message)}</p>`));
   if (view === "review") loadReview().catch((e) => toast(e.message));
-  if (view === "areas") loadAreas().catch((e) => toast(e.message));
+  if (view === "areas") { loadAreas().catch((e) => toast(e.message)); loadKinds(); }
   if (view === "roadmap") loadRoadmap().catch((e) => toast(e.message));
   if (view === "me") loadMe().catch((e) => ($("#me-body").innerHTML = `<p class="status err">${esc(e.message)}</p>`));
 }
@@ -749,6 +777,9 @@ document.addEventListener("click", (e) => {
   const t = e.target.closest("button, a");
   if (!t) return;
   if (t.dataset.guide) { e.preventDefault(); openGuide(); return; }
+  if (t.dataset.kmerge) kindsAct({ action: "merge", merge: t.dataset.kmerge, keep: t.dataset.kkeep }, `Merged into ${t.dataset.kkeep}`);
+  if (t.dataset.kapart) kindsAct({ action: "keep", merge: t.dataset.kapart, keep: t.dataset.kkeep }, "Kept apart");
+  if (t.dataset.kundo) kindsAct({ action: "undo", merge: t.dataset.kundo }, "Merge undone");
   if (t.closest("#guide-body") && t.getAttribute("href")?.startsWith("#")) { closeGuide(); return; }  // a link in the guide: close it, then go
   if (t.dataset.guidenav) {
     const next = guideAt + Number(t.dataset.guidenav);
@@ -758,6 +789,8 @@ document.addEventListener("click", (e) => {
   if (t.dataset.guideclose) { closeGuide(); return; }
   if (t.dataset.range) { state.range = t.dataset.range; renderMode(); }
   if (t.dataset.morekinds) { state.allKinds = !state.allKinds; renderChips(); }
+  if (t.dataset.fav) { const k = t.dataset.fav; favs.has(k) ? favs.delete(k) : favs.add(k); saveFavs(); if (!favs.size) state.favOnly = false; renderChips(); renderList(); return; }
+  if (t.dataset.favfilter) { state.favOnly = !state.favOnly; renderChips(); renderList(); return; }
   if (t.dataset.kind) { state.kind = state.kind === t.dataset.kind ? null : t.dataset.kind; renderChips(); renderList(); }
   if (t.dataset.area) { state.area = state.area === t.dataset.area ? null : t.dataset.area; renderChips(); renderList(); }
   if (t.dataset.facet) { state.facet = state.facet === t.dataset.facet ? null : t.dataset.facet; renderChips(); renderList(); }
