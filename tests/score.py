@@ -1,6 +1,8 @@
 """Score the reader against fixture cases.
 
-    /usr/bin/python3 -E -s tests/score.py [tests/fixtures | tests/posts] [--model ID] [--jobs N]
+    /usr/bin/python3 -E -s tests/score.py [tests/fixtures | tests/posts] [--model ID] [--jobs N] [--only PREFIX] [--repeat N]
+
+--repeat reads each case N times, to see how steady the reader is on it.
 
 Each case dir holds input.*, meta.json (received) and expected.json. Only the
 fields named in expected.json are scored. Results land in tests/results/.
@@ -53,6 +55,8 @@ def match(expected: list[dict], records: list[dict]) -> list[tuple[dict, dict | 
     pairs = []
     for e in expected:
         same_day = [r for r in left if r.get("start_date") == e.get("start_date")] or left
+        if "listing_kind" in e:  # an event and a volunteer call from one post: each paired with its own kind
+            same_day = [r for r in same_day if (r.get("listing_kind") or "event") == e["listing_kind"]] or same_day
         best = max(same_day, key=lambda r: len(words(e.get("name")) & words(r.get("name"))), default=None)
         if best is not None:
             left.remove(best)
@@ -97,8 +101,11 @@ def main() -> int:
     ap.add_argument("set", nargs="?", default=str(ROOT / "tests" / "fixtures"))
     ap.add_argument("--model", default=os.environ.get("EVENTHUB_MODEL", "claude-opus-5-5"))
     ap.add_argument("--jobs", type=int, default=3)
+    ap.add_argument("--only", default="", help="only the cases whose name starts with this")
+    ap.add_argument("--repeat", type=int, default=1)
     a = ap.parse_args()
-    cases = sorted(p for p in Path(a.set).iterdir() if p.is_dir() and (p / "expected.json").exists())
+    cases = sorted(p for p in Path(a.set).iterdir() if p.is_dir() and (p / "expected.json").exists() and p.name.startswith(a.only))
+    cases = [c for c in cases for _ in range(a.repeat)]
     with ThreadPoolExecutor(a.jobs) as pool:
         results = list(pool.map(lambda c: run_case(c, a.model), cases))
     P = sum(r["passed"] for r in results)
