@@ -1,8 +1,10 @@
 # The Wheel
 
-One list of community events around Auckland, in three modes: **Day** for workshops, skillshares and volunteer
-shifts, **Night** for gigs and evening gatherings, **Recovery** for retreats, sound baths, breathwork and rest.
-People add what they find, and other people check it.
+One list of community events, in three modes: **Day** for workshops, skillshares and volunteer shifts, **Night**
+for gigs and evening gatherings, **Recovery** for retreats, sound baths, breathwork and rest. People add what they
+find, and other people check it. It starts in Auckland and is open to anywhere: add events from your own town, or
+run your own Wheel from this code. (The reader reads times as Auckland time for now; another time zone is a
+setting to add.)
 
 Live at **[aureliusxradix.com/thewheel](https://aureliusxradix.com/thewheel/)**, version one. The roadmap is on
 the site, under Additional info.

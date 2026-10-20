@@ -655,7 +655,7 @@ async function saveArea(e) {
 /* ---------- the first-visit guide (his ask 2026-10-20: "pop-up when loading the page, which shows people how to use it
    and gives context"). Shown once per browser, reopened from "How it works". ---------- */
 const GUIDE = [
-  ["Welcome to The Wheel", `<p>Community events around Auckland, gathered in one place. People add what they find, and other people check it. Each listing links to its organiser when there is a page.</p>`],
+  ["Welcome to The Wheel", `<p>Community events gathered in one place, starting in Auckland and open to anywhere. People add what they find, and other people check it. Each listing links to its organiser when there is a page.</p>`],
   ["Three ways in", `<p><b>Day</b>: workshops, skillshares and volunteer shifts. <b>Night</b>: gigs, socials and evening gatherings. <b>Recovery</b>: retreats, sound baths, breathwork and rest.</p><p>Switch at the top. Each mode has its own look.</p>`],
   ["Add what you find", `<p>Under <b>Add a listing</b>, paste a post or a link, or drop in a flyer. The Wheel reads it and fills in the listing. You check it and send it for review.</p><p>Members check each listing before it shows as checked. Their reviews count by their <a href="#rep">rep</a>.</p>`],
   ["Your place, on your device", `<p>On <b>Me</b>, one tap makes you a key and a pen name. The key is the whole sign-up, and it stays on your device.</p><p>Copy your key somewhere safe, like a password manager. With it you sign in on any device as the same pen name. <a href="#rep">Rep</a> grows as your listings and reviews hold up, and it opens more of the tools.</p>`],
