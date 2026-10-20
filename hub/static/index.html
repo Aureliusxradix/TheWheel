@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en-NZ" data-look="night">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Community events around Auckland in one list, in three modes: Day, Night and Recovery. Added and checked by the people who go."><!-- in search from 2026-10-20, his ruling: "Let search find it" -->
+<title>The Wheel</title>
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-api="" data-zk="zk/">
+<header class="top">
+  <a class="brand" href="#night"><span class="root">√</span>The Wheel</a>
+  <nav class="modes" aria-label="Modes">
+    <a href="#day" data-view="day">Day</a>
+    <a href="#night" data-view="night">Night</a>
+    <a href="#recovery" data-view="recovery">Recovery</a>
+  </nav>
+  <nav class="tools" aria-label="Tools">
+    <a href="#add" data-view="add">Add a listing</a>
+    <a href="#night" id="events-link" data-view="events">Events</a>
+    <a href="#review" data-view="review">Review<span id="pending-count" class="count" aria-label="waiting for review"></span></a>
+    <a href="#areas" data-view="areas">Areas</a>
+    <a href="#privacy" data-view="privacy">Privacy</a>
+    <a href="#support" data-view="support">Support</a>
+    <details class="more-menu" id="more-menu">
+      <summary>Additional info</summary>
+      <div class="more-panel">
+        <a href="#roadmap" data-view="roadmap">Roadmap</a>
+        <a href="#" data-guide="1">How it works</a>
+        <a href="#rep" data-view="rep">How rep works</a>
+      </div>
+    </details>
+    <a href="#me" data-view="me" class="me-link">Me</a>
+  </nav>
+</header>
+
+<main id="app">
+  <section id="view-mode" class="view" aria-labelledby="h-mode">
+    <div class="mode-head">
+      <h1 id="h-mode"></h1>
+      <p id="mode-lede" class="lede"></p>
+    </div>
+    <div class="filters">
+      <label class="search"><span class="sr-only">Search</span>
+        <input id="q" type="search" autocomplete="off"></label>
+      <div class="ranges" role="group" aria-label="When" id="ranges"></div>
+    </div>
+    <div class="terms" id="terms"></div>
+    <div class="tagrow" id="facet-row"></div>
+    <div class="tagrow" id="kind-row"></div>
+    <div class="tagrow" id="area-row"></div>
+    <div class="toggles">
+      <label class="toggle"><input id="unreviewed" type="checkbox" checked> Show listings not reviewed yet</label>
+      <label class="toggle"><input id="archive" type="checkbox"> Show what already happened</label>
+    </div>
+    <div id="list" aria-live="polite"></div>
+  </section>
+
+  <section id="view-me" class="view" aria-labelledby="h-me" hidden>
+    <h1 id="h-me">Me</h1>
+    <p class="lede">Your place in The Wheel lives on this device: a key made here and kept here. No email, no phone number, no name.</p>
+    <div id="me-body"><p class="status">Checking…</p></div>
+  </section>
+
+  <section id="view-add" class="view" aria-labelledby="h-add" hidden>
+    <h1 id="h-add">Add a listing</h1>
+    <p class="lede">Paste a post or a link, or add a flyer. An event or a call for volunteers, either works. The Wheel reads it and shows you what it found. You check it, then send it for review.</p>
+    <form id="add-form">
+      <label for="add-text">Post or link</label>
+      <textarea id="add-text" rows="6" placeholder="Paste the caption, the message, or a link to the event page"></textarea>
+      <div id="drop" class="drop" tabindex="0">
+        <input id="add-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+        <span id="drop-label">Drop a flyer here, or <button type="button" id="pick" class="linklike">choose an image</button></span>
+      </div>
+      <button type="submit" class="primary" id="read-btn">Read it</button>
+      <p id="add-status" class="status" role="status"></p>
+    </form>
+    <div id="found"></div>
+  </section>
+
+  <section id="view-review" class="view" aria-labelledby="h-review" hidden>
+    <h1 id="h-review">Review</h1>
+    <p class="lede">Each listing waits here until someone checks it against its source. Approve it, fix it first, or reject it.</p>
+    <label class="search"><span class="sr-only">Search the review list</span>
+      <input id="rq" type="search" placeholder="Find one to review: name, place, date…" autocomplete="off"></label>
+    <div id="review-list"></div>
+  </section>
+
+  <section id="view-areas" class="view" aria-labelledby="h-areas" hidden>
+    <h1 id="h-areas">Areas</h1>
+    <p class="lede">An area is a centre and a reach. Click the map to set the centre, give it a name and how far it reaches. Any approved listing inside the circle carries the area.</p>
+    <div class="areas-grid">
+      <div id="map" role="application" aria-label="Map: click to set the area's centre"></div>
+      <form id="area-form">
+        <label for="area-name">Name</label>
+        <input id="area-name" type="text" placeholder="Hibiscus Coast" required>
+        <label for="area-reach">Reach in km</label>
+        <input id="area-reach" type="number" min="0.5" max="200" step="0.5" value="8">
+        <p id="area-centre" class="hint">Click the map to set the centre.</p>
+        <button type="submit" class="primary">Save area</button>
+        <p id="area-status" class="status" role="status"></p>
+      </form>
+    </div>
+    <ul id="area-list" class="area-list"></ul>
+  </section>
+
+  <section id="view-privacy" class="view prose" aria-labelledby="h-privacy" hidden>
+    <h1 id="h-privacy">Your privacy on The Wheel</h1>
+    <p class="lede">The Wheel lists what is on, finds people for the shifts that need filling, and keeps who you are to you.</p>
+
+    <h2>What holds today</h2>
+    <ul class="claims">
+      <li><b>No phone number.</b> The Wheel asks for no phone number to look, to add a listing, or to help. A number is your legal name in another form.</li>
+      <li><b>The organiser keeps the door.</b> Listings link to the organiser's own page when there is one. Tickets and shift sign-ups happen there, with them.</li>
+      <li><b>A person checks every listing.</b> Each one waits for a reviewer before it shows as checked, and links to where it was found.</li>
+      <li><b>No ads, no analytics.</b> The Wheel carries no advertising and no tracking code of its own. What it knows about anyone stays off the market.</li>
+      <li><b>Hardware we own.</b> The Wheel runs on a machine we own and look after, outside any big platform's cloud.</li>
+    </ul>
+
+    <h2>What we are building</h2>
+    <ul class="claims">
+      <li><b>Phone-free accounts</b>, so adding a listing is tied to a member, and spam has a cost.</li>
+      <li><b>Proof in place of a list.</b> Members prove they belong, and that they turned up, and The Wheel keeps no list of who went where. This uses zero-knowledge membership proofs, and it switches on once enough people have joined for the proof to protect anyone.</li>
+      <li><b>Reputation that rewards the long run</b>, earned by showing up and by good listings, set up after a study of how it can be gamed.</li>
+    </ul>
+
+    <h2>Compared with a phone-number login</h2>
+    <div class="compare-wrap">
+      <table class="compare">
+        <thead><tr><th scope="col"></th><th scope="col">The Wheel</th><th scope="col">gather.rsvp, from its own privacy policy</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">To sign in</th><td>No phone number</td><td>Phone number: <i>"We collect your phone number primarily for the purpose of account login, multi-factor authentication"</i></td></tr>
+          <tr><th scope="row">Who sees that you are going</th><td>You and the organiser, on the organiser's own page</td><td><i>"With event hosts when you register for events"</i></td></tr>
+          <tr><th scope="row">How long attendance is kept</th><td>Being built so that no list of who went where exists</td><td><i>"for so long as we reasonably consider it necessary"</i></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="hint">gather.rsvp quotes read from gather.rsvp/legal/privacy on 20 October 2026.</p>
+  </section>
+  <section id="view-roadmap" class="view prose" aria-labelledby="h-roadmap" hidden>
+    <h1 id="h-roadmap">Roadmap</h1>
+    <p class="lede">What The Wheel does today, and what opens up as more people use it. Some steps wait for a number of members, because the privacy a check-in gives grows with the crowd.</p>
+    <div class="terms" id="rm-now"><div class="term key"><span class="k">Members</span><span class="v" id="rm-members">…</span></div>
+      <div class="term"><span class="k">Listings</span><span class="v" id="rm-listings">…</span></div>
+      <div class="term"><span class="k">Checked</span><span class="v" id="rm-checked">…</span></div></div>
+
+    <h2>Live now</h2>
+    <ul class="claims">
+      <li><b>One list, three modes.</b> Day for workshops, skillshares and volunteer shifts. Night for gigs and evening gatherings. Recovery for retreats, sound baths and rest.</li>
+      <li><b>Listings people add.</b> Paste a post or a link, or drop in a flyer. The Wheel reads it into a listing, and members check it before it shows as checked.</li>
+      <li><b>Review weighted by <a href="#rep">rep</a>.</b> Each review counts by the reviewer's standing, and a listing settles once the reviews reach 70% sure.</li>
+      <li><b>A pen name on a key.</b> Joining is one tap. The key stays on your device, and with a copy of it you sign in anywhere as the same pen name.</li>
+    </ul>
+
+    <h2>Finishing what's here</h2>
+    <p class="hint">First, before new features: the tools that are live, made smooth.</p>
+    <ul class="claims plans">
+      <li><b>Review that is quick to work through.</b> Soonest events first, past ones set aside, search by name, place or date, and a review button on every listing.</li>
+      <li><b>Kinds kept tidy.</b> Near-twin kinds (exhibition, art exhibition, exhibition opening) suggested for merging, with a person saying yes to each.</li>
+      <li><b>Listings that read the same everywhere.</b> Dates, times, links and flyers shown the same way in every mode.</li>
+      <li><b>A steadier reader.</b> A volunteer call read into the same shifts every time.</li>
+      <li><b>Phones first.</b> Every view tuned for a phone screen, and the wording checked line by line.</li>
+    </ul>
+
+    <h2>As the crowd grows</h2>
+    <ol class="stages" id="rm-stages">
+      <li data-at="3"><b>3 members: check-ins open.</b> At an event, a door code lets members prove they came. Today a steward opens the check-in from the listing and gets a 6-character code on their screen, good for 6 hours, to show or say at the door. Members type it into the listing. The Wheel keeps a count for each event, held apart from pen names.<span class="stage-state"></span></li>
+      <li data-at="10"><b>10 members: the small-crowd note lifts.</b> Until then each check-in carries a note that a small crowd covers people less well.<span class="stage-state"></span></li>
+      <li data-at="20"><b>15 to 20 members: the crowd covers each person.</b> From here a check-in says one of many.<span class="stage-state"></span></li>
+    </ol>
+
+    <h2>Next to build</h2>
+    <h3 class="rm-group">At the door</h3>
+    <ul class="claims plans">
+      <li><b>Organisers open their own check-ins.</b> An organiser who has claimed a listing gets the door code on their own phone.</li>
+      <li><b>A door code that changes every minute,</b> shown on the host's screen, so a code passed around outside the room stops working.</li>
+      <li><b>Hosts scan each phone at the door,</b> for events that want a check-in that holds firm.</li>
+    </ul>
+    <h3 class="rm-group">Organisers and communities</h3>
+    <ul class="claims plans">
+      <li><b>Organisers claim their listings.</b> They keep the details right and post updates: cancelled, moved, sold out.</li>
+      <li><b>A community board.</b> A list of the communities that keep meeting, beside the one-off events.</li>
+      <li><b>Pages for regular events.</b> A weekly kava circle or a monthly open mic gets one page with all its dates.</li>
+      <li><b>Anonymous interested counts.</b> Members tap Interested and the organiser sees a number, proven like a check-in, with no list of names.</li>
+    </ul>
+    <h3 class="rm-group">You on The Wheel</h3>
+    <ul class="claims plans">
+      <li><b>Private profiles.</b> Under your pen name: skills and experience you choose to add, which you can prove to an organiser while the rest stays with you.</li>
+      <li><b>The volunteer layer.</b> Sign up for shifts under your pen name, matched to what a call asks for.</li>
+      <li><b>Volunteer thanks.</b> An organiser thanks the pen names who did a shift, and it counts toward their rep.</li>
+      <li><b><a href="#rep">Rep</a> for the long run.</b> Turning up and following through over months counts, once check-ins are hard to fake.</li>
+    </ul>
+    <h3 class="rm-group">Getting events to you</h3>
+    <ul class="claims plans">
+      <li><b>Add to calendar, and a feed.</b> One tap puts a listing in your phone's calendar; subscribe once and new events arrive by themselves.</li>
+      <li><b>A map of events,</b> filtered by mode, on the areas already drawn.</li>
+      <li><b>A weekly digest</b> pushed to your phone or read as a feed, with no email address asked for.</li>
+      <li><b>Links to share.</b> A link for each listing, ready to drop into a group chat.</li>
+      <li><b>Share from your phone.</b> Send a screenshot or flyer to The Wheel and Add a listing opens with it filled in, on Android once The Wheel is installed.</li>
+    </ul>
+    <h3 class="rm-group">Your way around</h3>
+    <ul class="claims plans">
+      <li><b>Your own menu.</b> Pick the mode you start in, pin the tools you use, and tuck the rest away.</li>
+      <li><b>Reading and comfort settings.</b> Bigger text, higher contrast, less motion, and a font made for dyslexic readers.</li>
+      <li><b>Install as an app.</b> The Wheel on your home screen, opening with the last list it loaded when you are offline.</li>
+    </ul>
+    <h3 class="rm-group">Trust and care</h3>
+    <ul class="claims plans">
+      <li><b>Report a listing</b> as wrong, out of date or unsafe, and it goes back to review.</li>
+      <li><b>A public moderation log.</b> Every steward action written where anyone can read it.</li>
+      <li><b>Appeals.</b> A listing turned down, or a rank reset, looked at again by other stewards.</li>
+    </ul>
+
+    <h2>Further out</h2>
+    <ul class="claims plans">
+      <li><b>Stewards chosen by members</b> as The Wheel grows: by rep, by nomination, or by a vote of Reviewers.</li>
+      <li><b>Te reo Māori alongside English,</b> worked on with te reo speakers.</li>
+      <li><b>The code, public.</b> Published for anyone to copy and run their own Wheel.</li>
+      <li><b>An open feed for other sites.</b> Checked listings offered to other community sites and other Wheels.</li>
+      <li><b>A shared data hub.</b> Listings held across many copies, so The Wheel carries on whoever looks after it.</li>
+    </ul>
+    <p>Join on the <a href="#me">Me</a> page, add an event you know about, or check one waiting in <a href="#review">Review</a>.</p>
+  </section>
+
+  <section id="view-rep" class="view prose" aria-labelledby="h-rep" hidden>
+    <h1 id="h-rep">How rep works</h1>
+    <p class="lede">Rep is your standing on The Wheel. It grows when what you add and what you check holds up, and it opens more of the tools. Rep is earned here, by what you do.</p>
+
+    <h2>What earns it</h2>
+    <ul class="claims">
+      <li><b>A listing you added passes review:</b> 2 points. One that reviewers turn down takes 2 away.</li>
+      <li><b>Your review agrees with how a listing settles:</b> 1 point. A review on the other side takes 1 away.</li>
+      <li><b>A weekly limit:</b> points count for up to 5 listings and 5 reviews a week, so steady use over months counts for more than a busy day.</li>
+      <li><b>Points arrive once a listing settles,</b> for the person who added it and for every review on it.</li>
+    </ul>
+
+    <h2>The four tiers</h2>
+    <div class="compare-wrap">
+      <table class="compare">
+        <thead><tr><th scope="col">Tier</th><th scope="col">How you get there</th><th scope="col">What it opens</th><th scope="col">A review counts</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">New</th><td>Join on the Me page</td><td>Add up to 3 listings a day, review any listing</td><td>20%</td></tr>
+          <tr><th scope="row">Regular</th><td>10 points and 14 days</td><td>Up to 10 listings a day</td><td>40%</td></tr>
+          <tr><th scope="row">Reviewer</th><td>30 points</td><td>Fix a listing's details while reviewing</td><td>70%</td></tr>
+          <tr><th scope="row">Steward</th><td>Named by two stewards</td><td>Areas, opening check-ins at events</td><td>90%</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>How a listing gets checked</h2>
+    <p>Each review counts by the reviewer's tier at the moment they cast it. The reviews for a listing add up like this: two Regulars together reach 64%, one Reviewer alone reaches 70%, six New members together reach 74%. At 70% sure, the listing settles as checked, or as turned down when the reviews go the other way.</p>
+
+    <h2>Fair play</h2>
+    <ul class="claims">
+      <li><b>You review other people's listings.</b> Your own go to someone else.</li>
+      <li><b>A ban resets rank to zero.</b> Your past reviews stay, so other listings keep their standing.</li>
+      <li><b>Turning up to events:</b> check-ins stay apart from pen names by design. Counting them toward rep is on the <a href="#roadmap">Roadmap</a>, once check-ins are hard to fake.</li>
+    </ul>
+    <p class="hint">Version 1. The numbers will change as The Wheel learns what works. Your rep and tier are on the <a href="#me">Me</a> page.</p>
+  </section>
+
+  <section id="view-support" class="view prose" aria-labelledby="h-support" hidden>
+    <h1 id="h-support">Support The Wheel</h1>
+    <p class="lede">this is a project of love towards our communities, I run this on my own hardware and is dependant on my time and use of my resources, support to the project via direct application, feedback, contribution, use and when possible financially would be much appreciated! This is a public an open source project in nature so feel free to replicate! Plans to create a decentralisaed datahub so that this lives on regardless of who maintains it is in the works as the project scales</p>
+    <p><a href="https://aureliusxradix.com/">A project by Aurelius × Radix →</a></p>
+    <h2>Give</h2>
+    <div class="give">
+      <div class="give-way">
+        <h3>Monero</h3>
+        <p class="hint">Direct, with no one in between: no account, no platform, no one who can stop it.</p>
+        <div class="keyrow"><input id="xmr" type="text" readonly value="87TdnZcH3TSLtneBhq9qzx9hKMUWfBUeTfF6RERT9NiVb4VJ6q3EA4YMwooSaTyxq3XVLcUrzU4QA9WdvaGPBSurA4WYwqs" aria-label="Monero address" spellcheck="false">
+        <button type="button" class="quiet" data-copyxmr="1">Copy</button></div>
+      </div>
+      <div class="give-way">
+        <h3>Liberapay</h3>
+        <p class="hint">A few dollars a month by card, with nothing to install.</p>
+        <p><a class="primary" href="https://liberapay.com/AureliusxRadix/" target="_blank" rel="noopener">Support on Liberapay</a></p>
+      </div>
+    </div>
+    <h2>Other ways</h2>
+    <ul class="claims">
+      <li><b>Use it.</b> Add the events you know about, and check in when you go.</li>
+      <li><b>Review.</b> Mark listings right or wrong; your rep grows as your reviews hold up.</li>
+      <li><b>Tell us what to fix.</b> Feedback on what works and what to change is how it gets better.</li>
+    </ul>
+  </section>
+</main>
+
+<div id="guide" class="guide" hidden>
+  <div class="guide-panel" role="dialog" aria-modal="true" aria-labelledby="guide-h">
+    <p class="guide-step" id="guide-step"></p>
+    <h2 id="guide-h"></h2>
+    <div id="guide-body"></div>
+    <div class="actions"><button type="button" class="quiet" data-guidenav="-1" id="guide-back">Back</button>
+      <button type="button" class="primary" data-guidenav="1" id="guide-next">Next</button></div>
+    <button type="button" class="linklike guide-skip" data-guideclose="1">Close the guide</button>
+  </div>
+</div>
+
+<footer class="foot">
+  <span>Listings link to where they were found, when there is a page. Nothing here loads from a font or script host; the map tiles come from OpenStreetMap.</span>
+  <span><a href="https://aureliusxradix.com/">A project by Aurelius × Radix →</a></span>
+</footer>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="vendor/wheel-zk.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

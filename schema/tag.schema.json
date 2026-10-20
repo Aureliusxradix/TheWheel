@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "event-hub/tag.schema.json",
+  "title": "Tag",
+  "description": "Draft 1, 2026-10-18. His calls: area is a tag built from a centre; kinds are user-made and compact over time by closeness in meaning. Proposal (not ruled): both are a centre plus a reach, in map-space or meaning-space, and compaction merges centres that sit inside each other's reach.",
+  "type": "object",
+  "required": ["id", "name", "space"],
+  "properties": {
+    "id": { "type": "string" },
+    "name": { "type": "string", "description": "As its maker wrote it." },
+    "space": { "enum": ["area", "kind"] },
+    "aliases": { "type": "array", "items": { "type": "string" }, "description": "Names absorbed by merges and spelling variants. Variants are kept, never corrected." },
+    "centre": {
+      "description": "area: a point on the map. kind: a vector in meaning-space (embedding of the name, later of the events that carry it).",
+      "oneOf": [
+        { "type": "object", "required": ["lat", "lng"], "properties": { "lat": { "type": "number" }, "lng": { "type": "number" } } },
+        { "type": "object", "required": ["model", "vector_ref"], "properties": { "model": { "type": "string" }, "vector_ref": { "type": "string", "description": "Key into the vector store; vectors are not kept inline." } } }
+      ]
+    },
+    "reach": { "type": "number", "description": "area: kilometres. kind: a distance threshold in the embedding's own metric (DormSoup had none; this is the fix)." },
+    "created_by": { "type": ["string", "null"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "merged_into": { "type": ["string", "null"], "description": "Calagator's duplicate_of trail: a merged tag keeps its row and points at the survivor." },
+    "merge_state": { "enum": ["none", "suggested", "confirmed", "refused"], "default": "none", "description": "Proposal: the system suggests, a person confirms." }
+  }
+}

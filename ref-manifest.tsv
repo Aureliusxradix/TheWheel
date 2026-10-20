@@ -1,0 +1,8 @@
+repo	commit	commit_date	licence	why it is on the shelf
+DormSoup/dormsoup-daemon	c7169334ec98a66f2e67a6a36eb8732c6c23e02f	2025-11-17	MIT	LLM reader: message -> events + tags (the Read station's starting point)
+DormSoup/dormsoup	0dfb233443e8c1c9028a690b197c2b0460753322	2025-12-07	MIT	its front end: how the events are shown and filtered
+aaronpk/Meetable	7d2d22ab7f85f7fef07a02ee99b9216df84c5ec4	2026-10-16	MIT	hub candidate A (PHP/Laravel)
+calagator/calagator	19da19ae22adccd7f1cd04ee1c3968356d6f1df9	2026-02-21	MIT	hub candidate B (Rails); import + duplicate squashing
+francescov1/facebook-event-scraper	b97b90b067836a3b4ab894794e667aa7ec2792a1	2026-05-12	MIT	one Facebook event link -> clean fields
+h0lg/FOMOcal	445e3afa8ea7eaa07c2cbf35355e646f8775f288	2026-07-24	MIT	per-venue scrape recipe idea
+huginn/huginn	74b4b890e2f9421b1dccc1177a16d2379913a927	2026-10-15	MIT	scheduled watchers for venue pages and feeds

@@ -1,0 +1,16 @@
+#!/bin/sh
+# Start the Event Hub on this machine and open it:  ./hub-app      Stop it:  ./hub-app stop
+cd "$(dirname "$0")" && mkdir -p data
+if [ "$1" = "stop" ]; then
+  [ -f data/server.pid ] && kill "$(cat data/server.pid)" 2>/dev/null && rm -f data/server.pid
+  podman stop wheel-zk >/dev/null 2>&1; echo "The Wheel stopped."
+  exit 0
+fi
+curl -s -o /dev/null http://127.0.0.1:8792/group || zk/run.sh >/dev/null   # the member service
+if ! curl -s -o /dev/null http://127.0.0.1:8790/api/areas; then
+  nohup /usr/bin/python3 -E -s hub/server.py --port 8790 >> data/server.log 2>&1 &
+  echo $! > data/server.pid
+  sleep 1
+fi
+[ "$1" = "quiet" ] || xdg-open http://localhost:8790/ >/dev/null 2>&1 &
+echo "The Wheel: http://localhost:8790/"

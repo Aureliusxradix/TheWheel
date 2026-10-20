@@ -1,0 +1,7 @@
+# third-party reference clones: read-only shelf, pinned in README.md, re-cloned on demand
+ref/
+__pycache__/
+data/
+runs/*.html.tmp
+hub/static/zk/
+dist/

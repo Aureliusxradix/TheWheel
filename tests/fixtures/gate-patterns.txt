@@ -1,0 +1,13 @@
+# A made-up identity-gate word list for tests. The real one is private (WHEEL_GATE_PATTERNS) and never in this repo.
+fakename
+fakeface
+fakehandle
+fakebox
+fakemachine
+fakeplace
+fakeaccount
+fakewallet123
+/home/fakeuser
+10\.99\.
+# a wiki-style link, not bare "[[" (nested JSON lists start with it too)
+\[\[[A-Za-z][^]\n]{0,80}\]\]

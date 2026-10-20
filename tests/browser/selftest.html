@@ -1,0 +1,51 @@
+<!doctype html><meta charset="utf-8"><title>wheel zk selftest</title>
+<pre id="out" style="font: 15px monospace">running…</pre>
+<img src="/__wait?ms=8000" hidden>
+<script src="/vendor/wheel-zk.js"></script>
+<script>
+// Real proofs in a real browser against a throwaway member service and store. Run by tests/browser/run.sh only.
+(async () => {
+  const out = document.getElementById("out"), res = {};
+  const API = new URLSearchParams(location.search).get("api") || "";  // set: the page and the data on two addresses, as live
+  const call = async (p, b, token) => { const h = { "content-type": "application/json" }; if (token) h.Authorization = "Bearer " + token;
+    const r = await fetch(API + p, b === undefined ? { headers: h } : { method: "POST", headers: h, body: JSON.stringify(b) }); return { status: r.status, json: await r.json() }; };
+  try {
+    localStorage.clear(); sessionStorage.clear();
+    const W = createWheel({ api: API + "/api/zk", zk: "/zk/" });
+    res.join = (await W.join()).ok;
+    for (let i = 1; i <= 2; i++) await call("/api/zk/join", { commitment: String(1000003n * BigInt(i) + 7n) });
+    // check-in (as before)
+    const ev = "abcdef0123456789";
+    const open = await call("/api/zk/checkin", { event: ev });
+    res.checkin_needs_steward = open.status === 401 || open.status === 403;
+    // member A: log in, add a listing, try to review it
+    const la = await W.login(); res.login_a = la.ok; const penA = la.account;
+    res.me_a = (await call("/api/me", undefined, la.token)).json.me;
+    const rec = { id: "1111222233334444", name: "Selftest listing", start_date: "2026-11-02", timezone: "Pacific/Auckland", modes: ["day"],
+      source: { kind: "manual" }, review: { state: "pending" }, tags: [] };
+    res.submit_nologin = (await call("/api/submit", { records: [rec] })).status;
+    res.submit_a = (await call("/api/submit", { records: [rec] }, la.token)).status;
+    res.review_own = (await call("/api/review/1111222233334444", { action: "approve", edits: {} }, la.token)).status;
+    res.areas_a = (await call("/api/areas", { name: "x", lat: -36.6, lng: 174.7, reach_km: 5 }, la.token)).status;
+    // sign out, then back in with the same key: the same pen name returns; a bad key changes nothing
+    const keyA = W.key();
+    res.signout_clears = W.signOut() && W.key() === null && !(await W.status()).member;
+    res.restore_bad = W.restore("not-a-key") === false && W.key() === null;
+    res.restore_member = W.restore(keyA) && (await W.status()).member;
+    const la2 = await W.login();
+    res.same_pen_after_signin = la2.ok && la2.account === la.account;
+    // member B: a second key on the same device
+    localStorage.clear(); sessionStorage.clear();
+    res.join_b = (await W.join()).ok;
+    const lb = await W.login(); res.login_b = lb.ok; res.pens_differ = lb.account !== penA;
+    const rv = await call("/api/review/1111222233334444", { action: "approve", edits: { name: "vandalised" } }, lb.token);
+    res.review_b = rv.status; res.certainty_after_b = rv.json.event && rv.json.event.certainty; res.edit_applied_as_new = rv.json.edited;
+    res.name_kept = rv.json.event && rv.json.event.name === "Selftest listing";
+    res.state_after_b = rv.json.event && rv.json.event.review.state;
+    res.PASS = res.signout_clears && res.restore_bad && res.restore_member && res.same_pen_after_signin && res.join && !res.checkin_needs_steward === false && res.login_a && res.me_a && res.me_a.tier === 0 && res.submit_nologin === 401 && res.submit_a === 200
+      && res.review_own === 403 && res.areas_a === 403 && res.login_b && res.pens_differ && res.review_b === 200
+      && res.certainty_after_b && res.certainty_after_b.for === 0.2 && res.edit_applied_as_new === false && res.name_kept && res.state_after_b === "pending";
+  } catch (e) { res.error = String(e && e.message || e); res.PASS = false; }
+  out.textContent = JSON.stringify(res, null, 1);
+})();
+</script>

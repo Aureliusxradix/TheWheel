@@ -1,0 +1,3 @@
+#!/bin/sh
+# Read one deposit into hub event records:  ./read "post text" | ./read flyer.png | ./read https://...
+cd "$(dirname "$0")" && exec /usr/bin/python3 -E -s -m reader "$@"

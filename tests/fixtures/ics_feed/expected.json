@@ -1,0 +1,5 @@
+[
+ {"name": "Open Mic Poetry Night", "start_date": "2026-10-24", "start_time": "19:00", "end_time": "22:00", "location_name": "Example Hall", "status": "confirmed"},
+ {"name": "Community Choir", "start_date": "2026-10-30", "start_time": "19:00", "end_time": "21:00", "status": "confirmed", "recurrence": true},
+ {"name": "Craft Market", "start_date": "2026-11-01", "start_time": null, "time_known": false, "status": "cancelled"}
+]
