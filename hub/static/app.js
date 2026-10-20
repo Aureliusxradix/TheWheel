@@ -589,16 +589,18 @@ function reviewCard(ev) {
 
 let reviewQueue = [], reviewMode = "";
 const isPast = (ev) => !!ev.past;  // the server's call, the same one the list makes
+const toCheck = (ev) => !ev.mine && !ev.my_verdict;  // a listing waits for others' reviews too, so one you marked stays in the queue
 function renderReview() {
   const q = ($("#rq").value || "").trim().toLowerCase();
   const shown = reviewQueue.filter((ev) => (!reviewMode || (ev.modes || []).includes(reviewMode)) && (!q || q.split(/\s+/).every((w) =>
     [ev.name, ev.location_name, ev.location_locality, ev.start_date, ev.source?.url, ...(ev.tags || []), ...(ev.modes || [])].join(" ").toLowerCase().includes(w))));
   // soonest first; your own last; what already happened set aside
   const order = (a, b) => (a.mine - b.mine) || (on(a) + (a.start_time || "")).localeCompare(on(b) + (b.start_time || ""));
-  const upcoming = shown.filter((e) => !isPast(e)).sort(order);
-  const past = shown.filter(isPast).sort(order);
+  const done = shown.filter((e) => e.my_verdict).sort(order);  // checked by you: set aside, your answer can still change
+  const upcoming = shown.filter((e) => !isPast(e) && !e.my_verdict).sort(order);
+  const past = shown.filter((e) => isPast(e) && !e.my_verdict).sort(order);
   const open = upcoming.filter((e) => !e.mine).length;
-  $("#rq-count").textContent = reviewQueue.length ? `${open} coming up to check${past.length ? `, ${past.length} already happened` : ""}.` : "";
+  $("#rq-count").textContent = reviewQueue.length ? `${open} coming up to check${past.length ? `, ${past.length} already happened` : ""}${done.length ? `, ${done.length} checked by you` : ""}.` : "";
   $("#review-list").innerHTML = upcoming.length ? upcoming.map(reviewCard).join("")
     : reviewQueue.length ? `<p class="empty">Nothing coming up matches. Clear the search or pick All.</p>`
     : `<p class="empty">Nothing waiting. New listings land here when someone adds them.</p>`;
@@ -606,6 +608,10 @@ function renderReview() {
   $("#rq-past-label").textContent = `Already happened (${past.length}): check these last, or mark them wrong`;
   $("#review-past").innerHTML = $("#rq-past").open ? past.map(reviewCard).join("") : "";
   $("#rq-past").ontoggle = () => { $("#review-past").innerHTML = $("#rq-past").open ? past.map(reviewCard).join("") : ""; };
+  $("#rq-done").hidden = !done.length;
+  $("#rq-done-label").textContent = `You've checked these (${done.length}): they wait for other reviews, and you can change your answer here`;
+  $("#review-done").innerHTML = $("#rq-done").open ? done.map(reviewCard).join("") : "";
+  $("#rq-done").ontoggle = () => { $("#review-done").innerHTML = $("#rq-done").open ? done.map(reviewCard).join("") : ""; };
 }
 
 async function inlineReview(id, btn) {
@@ -622,19 +628,20 @@ async function inlineReview(id, btn) {
 async function loadReview() {
   const { events, me } = await api("/api/review");
   reviewMe = me;
-  $("#pending-count").textContent = events.length || "";
+  $("#pending-count").textContent = events.filter(toCheck).length || "";
   reviewQueue = events;
   renderReview();
 }
 
 async function review(card, action) {
   try {
-    await api(`/api/review/${card.dataset.id}`, { action, edits: readEditor(card) });
+    const res = await api(`/api/review/${card.dataset.id}`, { action, edits: readEditor(card) });
     if (action !== "save") {
-      reviewQueue = reviewQueue.filter((e) => e.id !== card.dataset.id);
+      const ev = reviewQueue.find((e) => e.id === card.dataset.id);
+      if (ev) ev.my_verdict = action;  // moves to "You've checked these"
+      if (res.event?.review?.state !== "pending") reviewQueue = reviewQueue.filter((e) => e.id !== card.dataset.id);  // settled: out of the queue
       const row = card.closest(".ev");
-      card.remove();
-      if (row) loadEvents();
+      if (row) { card.remove(); loadEvents(); } else renderReview();
     }
     toast({ approve: "Marked right", save: "Fixes saved", reject: "Marked wrong" }[action]);
     refreshCount();
@@ -642,7 +649,7 @@ async function review(card, action) {
 }
 
 async function refreshCount() {
-  try { const { events } = await api("/api/review"); $("#pending-count").textContent = events.length || ""; } catch (e) { /* the count waits for the next load */ }
+  try { const { events } = await api("/api/review"); $("#pending-count").textContent = events.filter(toCheck).length || ""; } catch (e) { /* the count waits for the next load */ }
 }
 
 /* ---------- areas ---------- */
