@@ -11,7 +11,7 @@ import tempfile
 import time
 import unittest
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -51,6 +51,12 @@ class Read(unittest.TestCase):
 
     def test_a_future_date_stays(self):
         self.check("Every Monday", "2027-01-04", "2027-01-04")
+
+    def test_dates_ahead_for_picking_a_day(self):
+        got = repeats.dates_ahead("fortnightly on Fridays", "2026-10-23", TODAY, days=30)
+        self.assertEqual(got, ["2026-12-04", "2026-12-18"])
+        self.assertEqual(len(repeats.dates_ahead("Every Monday Evening", "2026-10-19", TODAY)), 26)
+        self.assertEqual(repeats.dates_ahead("Monthly", "2026-10-29", TODAY), [])
 
 
 def free_port():
@@ -99,6 +105,8 @@ class Served(unittest.TestCase):
         weekly, monthly = got["a" * 16], got["b" * 16]
         self.assertEqual((weekly["start_date"], weekly["next_date"], weekly["next_end"]), (self.first, self.want, self.want))
         self.assertNotIn("next_date", monthly)
+        self.assertEqual(weekly["repeats_on"][:2], [self.want, (date.fromisoformat(self.want) + timedelta(days=7)).isoformat()])
+        self.assertNotIn("repeats_on", monthly)
         self.assertFalse(weekly["past"] or monthly["past"])
         self.assertNotIn("recurrence", got["c" * 16])  # "unknown" is no repeat: it goes to the archive like any other
         self.assertTrue(got["c" * 16]["past"])

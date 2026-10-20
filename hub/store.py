@@ -53,6 +53,8 @@ def connect() -> sqlite3.Connection:
     for col in ("deposited_account TEXT", "deposit_day TEXT"):  # pen names, day only: no clock times
         if col.split()[0] not in cols:
             db.execute(f"ALTER TABLE events ADD COLUMN {col}")
+    if "granted_tier" not in {r["name"] for r in db.execute("PRAGMA table_info(accounts)")}:
+        db.execute("ALTER TABLE accounts ADD COLUMN granted_tier INTEGER")  # a tier a steward gives by hand
     db.commit()
     return db
 

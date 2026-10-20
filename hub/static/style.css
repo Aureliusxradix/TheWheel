@@ -88,6 +88,10 @@ button { font: inherit; cursor: pointer; }
 .ranges button, .tag { font-size: .74rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ink); background: transparent; border: 1px solid var(--soft-rule); border-radius: calc(var(--radius) / 2); padding: .4em .8em; }
 [data-look="day"] .ranges button, [data-look="day"] .tag { border: 2px solid #17191A; }
 .ranges button.on, .tag.on { background: var(--on-bg); color: var(--on-fg); border-color: var(--accent); }
+.pickday { display: inline-flex; white-space: nowrap; align-items: center; gap: .5em; font-size: .74rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ink); border: 1px solid var(--soft-rule); border-radius: calc(var(--radius) / 2); padding: .2em .3em .2em .8em; }
+[data-look="day"] .pickday { border: 2px solid #17191A; }
+.pickday.on { border-color: var(--accent); }
+.pickday input { font: inherit; letter-spacing: normal; text-transform: none; color: var(--ink); background: transparent; border: 0; padding: .2em; min-height: 1.8em; color-scheme: light dark; }
 .tagrow { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .55rem; align-items: center; }
 .tagrow .rowlabel { font-size: .68rem; letter-spacing: .16em; text-transform: uppercase; color: var(--dim); margin-right: .3rem; }
 .tag { text-transform: none; letter-spacing: .02em; font-size: .78rem; }

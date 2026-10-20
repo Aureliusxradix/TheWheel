@@ -76,7 +76,7 @@ def points(db, account: str) -> int:
 
 
 def tier(db, account: str) -> int:
-    row = db.execute("SELECT first_day, steward, reset_day FROM accounts WHERE account=?", (account,)).fetchone()
+    row = db.execute("SELECT first_day, steward, reset_day, granted_tier FROM accounts WHERE account=?", (account,)).fetchone()
     if row is None:
         return 0
     if row["steward"]:
@@ -84,11 +84,8 @@ def tier(db, account: str) -> int:
     p = points(db, account)
     age = (date.today() - date.fromisoformat(row["first_day"])).days
     review_part = p  # v1: listings and reviews are the only sources, so all of p counts toward Reviewer
-    if p >= 30 and review_part >= 20:
-        return 2
-    if p >= 10 and age >= 14:
-        return 1
-    return 0
+    earned = 2 if p >= 30 and review_part >= 20 else 1 if p >= 10 and age >= 14 else 0
+    return max(earned, row["granted_tier"] or 0)  # a tier given by hand (his ask 2026-10-21) is a floor; a ban clears it
 
 
 def summary(db, account: str) -> dict:

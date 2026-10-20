@@ -196,6 +196,10 @@ def dated(r: dict, today: str) -> dict:
         r.pop("recurrence")
     end = r.get("end_date") or r["start_date"]
     r["past"] = end < today and not r.get("recurrence")  # kept as the archive (his call, 2026-10-20)
+    if r.get("recurrence"):  # every date it happens for the next half year: picking a day finds it (2026-10-21)
+        ahead = repeats.dates_ahead(r["recurrence"], r["start_date"], today)
+        if len(ahead) > 1:
+            r["repeats_on"] = ahead
     nxt = repeats.next_on(r["recurrence"], r["start_date"], today) if r.get("recurrence") and end < today else None
     if nxt:  # shown on its next date everywhere; the listing keeps the date it was found with
         span = (date.fromisoformat(end) - date.fromisoformat(r["start_date"])).days

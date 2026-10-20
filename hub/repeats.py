@@ -78,3 +78,15 @@ def next_on(text: str, start_iso: str, today_iso: str):
         m += months
         y, m = y + (m - 1) // 12, (m - 1) % 12 + 1
     return None
+
+
+def dates_ahead(text: str, start_iso: str, today_iso: str, days: int = 183) -> list[str]:
+    """Every date the listing happens from today to about half a year on, for picking a day; empty when unread."""
+    out, frm = [], date.fromisoformat(today_iso)
+    until = frm + timedelta(days=days)
+    while True:
+        nxt = next_on(text, start_iso, frm.isoformat())
+        if not nxt or date.fromisoformat(nxt) > until:
+            return out
+        out.append(nxt)
+        frm = date.fromisoformat(nxt) + timedelta(days=1)

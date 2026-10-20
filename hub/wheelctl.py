@@ -2,6 +2,7 @@
 
     python3 hub/wheelctl.py steward add <pen-name>     make an account a steward
     python3 hub/wheelctl.py steward list
+    python3 hub/wheelctl.py tier <pen-name> reviewer   give a tier by hand (regular, reviewer; none takes it back)
     python3 hub/wheelctl.py reset <pen-name>           a ban: rank back to zero (history stays)
     python3 hub/wheelctl.py held                       listings the identity gate keeps out of every answer, and why
     python3 hub/wheelctl.py reject <listing-id>        take a listing out for good (a held one, say)
@@ -15,7 +16,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from hub import flyer, gate, store  # noqa: E402
+from hub import flyer, gate, rep, store  # noqa: E402
 from hub.server import FLYERS, public  # noqa: E402
 
 db = store.connect()
@@ -28,8 +29,14 @@ elif a[:2] == ["steward", "list"]:
     print("\n".join(r["account"] for r in db.execute("SELECT account FROM accounts WHERE steward=1")) or "no stewards yet")
 elif a[:1] == ["reset"] and len(a) == 2:
     # rank back to zero; their past reviews stay, so other listings' certainty does not shift
-    db.execute("UPDATE accounts SET steward=0, reset_day=date('now','localtime') WHERE account=?", (a[1],)); db.commit()
+    db.execute("UPDATE accounts SET steward=0, granted_tier=NULL, reset_day=date('now','localtime') WHERE account=?", (a[1],)); db.commit()
     print(f"{a[1]}: rank reset to zero")
+elif a[:1] == ["tier"] and len(a) == 3 and a[2] in ("none", "regular", "reviewer"):
+    # a floor under the earned tier; Steward stays its own step (steward add)
+    if db.execute("SELECT 1 FROM accounts WHERE account=?", (a[1],)).fetchone() is None:
+        sys.exit(f"no account {a[1]}")
+    db.execute("UPDATE accounts SET granted_tier=? WHERE account=?", ({"none": None, "regular": 1, "reviewer": 2}[a[2]], a[1])); db.commit()
+    print(f"{a[1]}: {a[2]} given by hand, tier now {rep.TIER_NAME[rep.tier(db, a[1])]}")
 elif a == ["held"]:
     # a held listing is never deleted: it waits here for a steward, who rejects it (below) or lets it stay held
     rx, n = gate.load(), 0

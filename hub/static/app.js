@@ -7,7 +7,7 @@ if (new URLSearchParams(location.search).has("shot")) { const i = new Image(); i
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const state = { events: [], areas: [], today: "", mode: "night", range: "all", kind: null, area: null, facet: null, allKinds: false, favOnly: false };
+const state = { events: [], areas: [], today: "", mode: "night", range: "all", date: "", kind: null, area: null, facet: null, allKinds: false, favOnly: false };
 
 /* Favourite kinds (his ask 2026-10-20: "personalisation of tags, as in a favorite system"). Kept in this browser only:
    The Wheel never learns what anyone favours. Starred kinds come first, and "My kinds" shows only listings with them. */
@@ -207,13 +207,18 @@ const fmtDay = (iso) => d(iso).toLocaleDateString("en-NZ", { weekday: "short" })
 const fmtShort = (iso) => d(iso).toLocaleDateString("en-NZ", { weekday: "short", day: "numeric", month: "short" });
 const addDays = (iso, n) => { const x = d(iso); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
 // the date a listing is on: a repeating one shows its next date (worked out by the server), never the past one it was found with
-const on = (ev) => ev.next_date || ev.start_date;
-const onEnd = (ev) => ev.next_end || ev.end_date || ev.start_date;
+const onPicked = (ev) => state.range === "date" && (ev.repeats_on || []).includes(state.date);  // shown on the day picked
+const on = (ev) => (onPicked(ev) ? state.date : ev.next_date || ev.start_date);
+const onEnd = (ev) => (onPicked(ev) ? state.date : ev.next_end || ev.end_date || ev.start_date);
 const mins = (t) => (t ? +t.slice(0, 2) * 60 + +t.slice(3, 5) : null);
 
 function inRange(ev) {
   const t = state.today, r = state.range;
   if (r === "all") return true;
+  if (r === "date") {  // a picked day: running then, a shift then, or repeating onto it
+    const x = state.date;
+    return (on(ev) <= x && onEnd(ev) >= x) || (ev.repeats_on || []).includes(x) || (ev.slots || []).some((s) => s.date === x);
+  }
   if (r === "tonight") return on(ev) <= t && onEnd(ev) >= t;
   if (r === "week") return on(ev) <= addDays(t, 7);
   const dow = d(t).getDay(); // 0 Sun .. 6 Sat
@@ -252,8 +257,9 @@ function renderMode() {
   $("#h-mode").textContent = m.title;
   $("#mode-lede").textContent = m.lede;
   $("#q").placeholder = m.search;
-  if (!m.ranges.some(([k]) => k === state.range)) state.range = "all";
-  $("#ranges").innerHTML = m.ranges.map(([k, label]) => `<button type="button" data-range="${k}" class="${state.range === k ? "on" : ""}">${label}</button>`).join("");
+  if (state.range !== "date" && !m.ranges.some(([k]) => k === state.range)) state.range = "all";
+  $("#ranges").innerHTML = m.ranges.map(([k, label]) => `<button type="button" data-range="${k}" class="${state.range === k ? "on" : ""}">${label}</button>`).join("") +
+    `<label class="pickday${state.range === "date" ? " on" : ""}">On a date <input type="date" id="pickday" min="${state.today}" value="${state.range === "date" ? state.date : ""}"></label>`;
   renderTerms();
   renderChips();
   renderList();
@@ -321,7 +327,7 @@ function matches(ev) {
   if (state.area && !(ev.areas || []).includes(state.area)) return false;
   if (state.facet && state.mode === "day" && !helpWith(ev).includes(state.facet)) return false;
   if (state.facet && state.mode === "recovery" && lengthOf(ev) !== state.facet) return false;
-  if (!ev.past && !inRange(ev)) return false;
+  if ((state.range === "date" || !ev.past) && !inRange(ev)) return false;
   if (!q) return true;
   const hay = [ev.name, ev.summary, ev.description, ev.location_name, ev.location_locality, ev.organiser,
     ...(ev.tags || []), ...(ev.areas || []), ...helpWith(ev)].join(" ").toLowerCase();
@@ -412,7 +418,8 @@ function renderList() {
   if (!html) {
     const any = state.events.some(inMode);
     html = any
-      ? `<p class="empty">Nothing in ${MODES[state.mode].title} matches. Clear the search or pick another chip.</p>`
+      ? state.range === "date" ? `<p class="empty">Nothing in ${MODES[state.mode].title} found for ${esc(fmtShort(state.date))}. Pick another date, or clear it to see everything coming up.</p>`
+      : `<p class="empty">Nothing in ${MODES[state.mode].title} matches. Clear the search or pick another chip.</p>`
       : `<p class="empty">Nothing in ${MODES[state.mode].title} yet. <a href="#add">Add the first listing</a> from a post, a link or a flyer.</p>`;
   }
   $("#list").innerHTML = html;
@@ -867,6 +874,7 @@ document.addEventListener("click", (e) => {
 });
 
 document.addEventListener("change", (e) => {
+  if (e.target.id === "pickday") { state.date = e.target.value; state.range = e.target.value ? "date" : "all"; renderMode(); return; }
   if (e.target.dataset?.k === "listing_kind") $(".shift-editor", e.target.closest(".card")).hidden = e.target.value !== "volunteer";
 });
 
