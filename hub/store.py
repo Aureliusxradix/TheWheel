@@ -46,6 +46,8 @@ def connect() -> sqlite3.Connection:
       PRIMARY KEY (account, day));
     CREATE TABLE IF NOT EXISTS tag_merges (alias TEXT PRIMARY KEY, canonical TEXT NOT NULL, day TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS tag_kept (a TEXT NOT NULL, b TEXT NOT NULL, day TEXT NOT NULL, PRIMARY KEY (a, b));
+    CREATE TABLE IF NOT EXISTS suggestions (id INTEGER PRIMARY KEY, listing_id TEXT NOT NULL, account TEXT NOT NULL,
+      fields TEXT NOT NULL, day TEXT NOT NULL, UNIQUE (listing_id, account));
     """)
     cols = {r["name"] for r in db.execute("PRAGMA table_info(events)")}
     for col in ("deposited_account TEXT", "deposit_day TEXT"):  # pen names, day only: no clock times
@@ -89,6 +91,31 @@ def cast_review(db, listing_id: str, account: str, verdict: str, weight: float, 
         db.execute("INSERT INTO reviews VALUES(?,?,?,?,?) ON CONFLICT(listing_id,account) DO UPDATE SET "
                    "verdict=excluded.verdict, weight=excluded.weight, day=excluded.day",
                    (listing_id, account, verdict, weight, day))
+        db.commit()
+
+
+def suggest(db, listing_id: str, account: str, fields: dict, day: str):
+    """A fix from a member below the Reviewer tier, waiting for a Reviewer or Steward: one per member per listing."""
+    with _lock:
+        db.execute("INSERT INTO suggestions(listing_id,account,fields,day) VALUES(?,?,?,?) ON CONFLICT(listing_id,account) "
+                   "DO UPDATE SET fields=excluded.fields, day=excluded.day",
+                   (listing_id, account, json.dumps(fields, ensure_ascii=False), day))
+        db.commit()
+
+
+def suggestions_for(db, listing_id: str) -> list[dict]:
+    return [{**dict(r), "fields": json.loads(r["fields"])}
+            for r in db.execute("SELECT * FROM suggestions WHERE listing_id=? ORDER BY id", (listing_id,))]
+
+
+def suggestion(db, sid: int) -> dict | None:
+    r = db.execute("SELECT * FROM suggestions WHERE id=?", (sid,)).fetchone()
+    return {**dict(r), "fields": json.loads(r["fields"])} if r else None
+
+
+def drop_suggestion(db, sid: int):
+    with _lock:
+        db.execute("DELETE FROM suggestions WHERE id=?", (sid,))
         db.commit()
 
 

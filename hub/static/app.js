@@ -445,6 +445,18 @@ const FIELDS = [
   ["description", "Description (the organiser's words)", "wide"],
 ];
 
+// a suggested fix shown to a Reviewer: each changed field, by the editor's own label
+const FIELD_LABEL = Object.fromEntries([...FIELDS.map(([k, l]) => [k, l.replace(/ \(.*\)$|, separated by commas$/, "")]),
+  ["modes", "Modes"], ["listing_kind", "Kind of listing"], ["requirements", "What it asks for"], ["slots", "Shifts"]]);
+const showValue = (k, v) => v == null || (Array.isArray(v) && !v.length) ? "(left empty)"
+  : k === "slots" ? v.map((sl) => [sl.date, sl.start && `${sl.start}${sl.end ? `–${sl.end}` : ""}`, sl.task].filter(Boolean).join(" ")).join("; ")
+  : k === "modes" ? v.map((m) => MODES[m]?.title || m).join(", ")
+  : k === "listing_kind" ? (v === "volunteer" ? "A call for volunteers" : "An event")
+  : Array.isArray(v) ? v.join(", ") : String(v);
+const suggestionHtml = (sg) => `<div class="rv-sug" data-sid="${sg.id}"><div class="rv-sug-head">A member suggests a fix:</div>
+  <ul>${Object.entries(sg.fields).map(([k, v]) => `<li><b>${esc(FIELD_LABEL[k] || k)}:</b> ${esc(showValue(k, v))}</li>`).join("")}</ul>
+  <div class="actions"><button type="button" class="quiet" data-sug="use">Use it</button><button type="button" class="quiet" data-sug="drop">Drop it</button></div></div>`;
+
 function slotRow(s = {}) {
   return `<div class="slot">
     <input type="text" data-s="date" value="${esc(s.date || "")}" placeholder="2026-10-31" aria-label="Shift date">
@@ -562,6 +574,7 @@ function reviewCard(ev) {
   const sure = c.reviews ? `${c.reviews} review${c.reviews > 1 ? "s" : ""}: ${pct(c.for)} sure it's right, ${pct(c.against)} sure it's wrong. It settles at 70%.` : "No reviews yet.";
   const notes = ev.extraction?.confidence_notes || "";
   const canFix = reviewMe && reviewMe.tier >= 2;
+  const canSuggest = reviewMe && !canFix;  // below Reviewer: a fix goes in as a suggestion (his ruling 2026-10-21)
   const modeNames = (ev.modes || []).map((m) => MODES[m]?.title || m).join(", ");
   const where = [ev.location_name, ev.location_locality && !(ev.location_name || "").includes(ev.location_locality) ? ev.location_locality : null].filter(Boolean).join(", ");
   // compact first: what to check, and the two answers; the editor waits behind "Fix details" (2026-10-20, Finishing what's here)
@@ -579,12 +592,15 @@ function reviewCard(ev) {
       ${ev.mine ? `<p class="hint">You added this one, so someone else checks it.</p>` : `<div class="actions"><button type="button" class="primary" data-act="approve">It's right</button>
       <button type="button" class="danger" data-act="reject">It's wrong</button>
       ${canFix ? `<button type="button" class="quiet" data-fix="1" aria-expanded="false">Fix details</button>` : ""}
+      ${canSuggest ? `<button type="button" class="quiet" data-fix="1" aria-expanded="false">Suggest a fix</button>` : ""}
       ${reviewMe && reviewMe.tier >= 3 ? `<button type="button" class="quiet" data-opencheckin="${ev.id}">Open check-in</button>` : ""}</div>`}
-      ${canFix && !ev.mine ? `<div class="rv-edit" hidden>${editorHtml(ev, `r-${ev.id}`)}
-        <div class="actions"><button type="button" class="quiet" data-act="save">Save my fixes</button></div>
-        <p class="hint">"It's right" also saves what you changed here.</p></div>` : ""}
+      ${(canFix || canSuggest) && !ev.mine ? `<div class="rv-edit" hidden>${editorHtml(ev, `r-${ev.id}`)}
+        <div class="actions"><button type="button" class="quiet" data-act="${canFix ? "save" : "suggest"}">${canFix ? "Save my fixes" : "Send my suggestion"}</button></div>
+        <p class="hint">${canFix ? `"It's right" also saves what you changed here.` : "A Reviewer or Steward looks at your fix before it goes on the listing."}</p></div>` : ""}
+      ${ev.my_suggestion ? `<p class="hint">Your suggested fix waits for a Reviewer or Steward. Sending another replaces it.</p>` : ""}
+      ${(ev.suggestions || []).map(suggestionHtml).join("")}
       <div class="door"></div>
-      ${reviewMe && reviewMe.tier < 2 && !ev.mine ? `<p class="hint">Your review counts for ${Math.round((({0:.2,1:.4,2:.7,3:.9})[reviewMe.tier]) * 100)}% as a ${esc(reviewMe.tier_name)}. Fixing details opens at the Reviewer tier. <a href="#rep">How rep works</a>.</p>` : ""}</div>`;
+      ${reviewMe && reviewMe.tier < 2 && !ev.mine ? `<p class="hint">Your review counts for ${Math.round((({0:.2,1:.4,2:.7,3:.9})[reviewMe.tier]) * 100)}% as a ${esc(reviewMe.tier_name)}. Your fixes go to a Reviewer first; from the Reviewer tier you fix details yourself. <a href="#rep">How rep works</a>.</p>` : ""}</div>`;
 }
 
 let reviewQueue = [], reviewMode = "";
@@ -636,15 +652,32 @@ async function loadReview() {
 async function review(card, action) {
   try {
     const res = await api(`/api/review/${card.dataset.id}`, { action, edits: readEditor(card) });
-    if (action !== "save") {
+    if (action === "suggest") {
+      const ev = reviewQueue.find((e) => e.id === card.dataset.id);
+      if (ev) ev.my_suggestion = true;
+      if (card.closest(".ev")) $(".rv-edit", card).hidden = true; else renderReview();
+    } else if (action !== "save") {
       const ev = reviewQueue.find((e) => e.id === card.dataset.id);
       if (ev) ev.my_verdict = action;  // moves to "You've checked these"
       if (res.event?.review?.state !== "pending") reviewQueue = reviewQueue.filter((e) => e.id !== card.dataset.id);  // settled: out of the queue
       const row = card.closest(".ev");
       if (row) { card.remove(); loadEvents(); } else renderReview();
     }
-    toast({ approve: "Marked right", save: "Fixes saved", reject: "Marked wrong" }[action]);
+    toast({ approve: "Marked right", save: "Fixes saved", suggest: "Suggestion sent", reject: "Marked wrong" }[action]);
     refreshCount();
+  } catch (err) { toast(err.message); }
+}
+
+async function useSuggestion(box, action) {
+  try {
+    const res = await api(`/api/suggestion/${box.dataset.sid}`, { action });
+    const ev = reviewQueue.find((e) => e.id === box.closest(".card").dataset.id);
+    if (ev) {
+      if (res.event) Object.assign(ev, res.event);
+      ev.suggestions = (ev.suggestions || []).filter((sg) => String(sg.id) !== box.dataset.sid);
+    }
+    toast(action === "use" ? "Fix used" : "Suggestion dropped");
+    if (box.closest(".ev")) { box.remove(); loadEvents(); } else renderReview();
   } catch (err) { toast(err.message); }
 }
 
@@ -816,6 +849,7 @@ document.addEventListener("click", (e) => {
   if (t.dataset.send) sendFound(t.dataset.send);
   if (t.dataset.drop) $(`.card[data-i="${t.dataset.drop}"]`).remove();
   if (t.dataset.act) review(t.closest(".card"), t.dataset.act);
+  if (t.dataset.sug) useSuggestion(t.closest("[data-sid]"), t.dataset.sug);
   if (t.dataset.fix) { const ed = $(".rv-edit", t.closest(".card")); ed.hidden = !ed.hidden; t.setAttribute("aria-expanded", String(!ed.hidden)); }
   if (t.dataset.rqmode !== undefined) { reviewMode = t.dataset.rqmode; $$("[data-rqmode]").forEach((b) => b.classList.toggle("on", b === t)); renderReview(); }
   if (t.dataset.inline) inlineReview(t.dataset.inline, t).catch((err) => toast(err.message));

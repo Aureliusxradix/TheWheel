@@ -158,6 +158,24 @@ def settle(rec: dict) -> dict:
     return rec
 
 
+def changes(rec: dict, edits: dict) -> dict:
+    """The fields an edit would change, as they would read after it: what a suggested fix carries."""
+    fixed = clean(json.loads(json.dumps(rec)), edits)
+    return {k: fixed.get(k) for k in sorted(EDITABLE) if fixed.get(k) != rec.get(k)}
+
+
+def shown_suggestions(sugs: list[dict]) -> list[dict]:
+    """Suggested fixes as a Reviewer sees them: no pen names, and one carrying a private mark held back alone."""
+    out = []
+    for sg in sugs:
+        h = gate.hit(GATE, json.dumps(sg["fields"], ensure_ascii=False))
+        if h:
+            sys.stderr.write(f"gate: suggestion {sg['id']} on {sg['listing_id']} withheld (/{h}/)\n")
+            continue
+        out.append({"id": sg["id"], "fields": sg["fields"]})
+    return out
+
+
 def public(rec: dict) -> dict:
     for k in PRIVATE_FIELDS:
         rec.pop(k, None)
@@ -301,6 +319,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, listing(p))
         if u.path == "/api/review":
             mine = self.account()
+            t = rep.tier(db(), mine) if mine else -1
             recs = [r for r in store.events(db(), ("pending",)) if not withheld(public(dict(r)))]  # judged as it would leave
             today = datetime.now(TZ).date().isoformat()
             for r in recs:
@@ -310,6 +329,10 @@ class Handler(BaseHTTPRequestHandler):
                 r["mine"] = bool(mine) and r.get("deposited_account") == mine
                 mv = [x["verdict"] for x in store.reviews_for(db(), r["id"]) if x["account"] == mine]
                 r["my_verdict"] = mv[0] if mv else None
+                sugs = store.suggestions_for(db(), r["id"])
+                r["my_suggestion"] = bool(mine) and any(sg["account"] == mine for sg in sugs)
+                if t >= 2 and sugs:  # suggested fixes go to those who can use them
+                    r["suggestions"] = shown_suggestions(sugs)
                 public(r)
             return self.send(200, {"events": recs, "me": rep.summary(db(), mine) if mine else None})
         if u.path == "/api/me":
@@ -410,10 +433,16 @@ class Handler(BaseHTTPRequestHandler):
                 if acct is None:
                     return
                 action = b.get("action")
-                if action not in ("approve", "reject", "save"):
-                    return self.fail(400, "Pick approve, save or reject.")
+                if action not in ("approve", "reject", "save", "suggest"):
+                    return self.fail(400, "Pick approve, save, suggest or reject.")
                 if rec.get("deposited_account") == acct:
                     return self.fail(403, "You added this one, so someone else checks it.")
+                if action == "suggest":  # below the Reviewer tier: a fix waits for a Reviewer or Steward (his ruling 2026-10-21)
+                    fields = changes(rec, b.get("edits") or {})
+                    if not fields:
+                        return self.fail(400, "Change a detail first, then send it.")
+                    store.suggest(db(), rec["id"], acct, fields, datetime.now(TZ).date().isoformat())
+                    return self.send(200, {"suggested": sorted(fields)})
                 edited = False
                 if t >= 2:  # fixing a listing's fields: Reviewer tier and up
                     rec = clean(rec, b.get("edits") or {})
@@ -425,6 +454,24 @@ class Handler(BaseHTTPRequestHandler):
                 rec = settle(rec)
                 store.put(db(), rec, rec["review"]["state"])
                 return self.send(200, {"event": public(dict(rec)), "edited": edited, "me": rep.summary(db(), acct)})
+            m = re.fullmatch(r"/api/suggestion/(\d+)", u.path)
+            if m:
+                acct, t = self.need(2)  # using a suggested fix: Reviewer tier and up, as fixing is
+                if acct is None:
+                    return
+                sg = store.suggestion(db(), int(m.group(1)))
+                if sg is None:
+                    return self.fail(404, "That suggestion is gone. Reload the review list.")
+                rec = store.get(db(), sg["listing_id"])
+                if rec and rec.get("deposited_account") == acct:
+                    return self.fail(403, "You added this one, so someone else checks its fixes.")
+                if b.get("action") == "use" and rec:
+                    rec = clean(rec, sg["fields"])
+                    store.put(db(), rec, rec["review"]["state"])
+                elif b.get("action") not in ("use", "drop"):
+                    return self.fail(400, "Pick use or drop.")
+                store.drop_suggestion(db(), sg["id"])
+                return self.send(200, {"event": public(dict(rec)) if rec else None})
             if u.path == "/api/kinds":
                 acct, t = self.need(3)  # merging kinds: stewards, a person saying yes to each (his ruling)
                 if acct is None:
