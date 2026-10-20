@@ -74,8 +74,8 @@ const WARN_CROWD = 10; // proposal: under 10, say plainly that a proof hides lit
 
 function crowdLine(size) {
   if (size < MIN_CROWD) return `The Wheel has ${size} member${size === 1 ? "" : "s"}. Check-ins open once ${MIN_CROWD} people have joined, so a check-in can hide who made it.`;
-  if (size < WARN_CROWD) return `You are one of ${size} members. A check-in proves a member was there, not which one, but among ${size} people that hides little. It gets stronger as people join.`;
-  return `You are one of ${size} members. A check-in proves a member was there, not which one.`;
+  if (size < WARN_CROWD) return `You are one of ${size} members. A check-in proves that a member was there and keeps which one to them, though among ${size} people that still narrows it a lot. It gets stronger as people join.`;
+  return `You are one of ${size} members. A check-in proves that a member was there and keeps which one to them.`;
 }
 
 // Hardened browsers (secureblue's Trivalent among them) switch the JavaScript optimiser off, and WebAssembly with it.
@@ -85,9 +85,9 @@ const NO_WASM_TEXT = "This browser has WebAssembly switched off, and the proof t
 
 async function loadMe() {
   const box = $("#me-body");
-  if (!W) { box.innerHTML = `<p class="status err">The member tools did not load. Reload the page.</p>`; return; }
+  if (!W) { box.innerHTML = `<p class="status err">The member tools failed to load. Reload the page.</p>`; return; }
   const st = await W.status();
-  if (!st.online) { box.innerHTML = `<p class="status err">The member service is not answering. Try again in a minute.</p>`; return; }
+  if (!st.online) { box.innerHTML = `<p class="status err">The member service is down or busy. Try again in a minute.</p>`; return; }
   if (!st.member) {
     // Two doors, side by side, returning first (2026-10-20: a returning member joined as someone new by accident).
     box.innerHTML = `${st.hasKey ? `<div class="warn">This browser holds a key that is not on the members list. Sign in with your own key, or join as someone new.</div>` : ""}
@@ -125,7 +125,7 @@ async function loadMe() {
     <div class="keyrow"><input id="my-key" type="password" readonly value="${esc(W.key() || "")}" aria-label="Your key">
     <button type="button" class="quiet" data-showkey="1">Show</button><button type="button" class="quiet" data-copykey="1">Copy</button></div>
     <h2 class="sub">Where you've checked in</h2>
-    ${mine.length ? `<ul class="claims">${mine.map((s) => `<li>${esc(s.label || s.event)}</li>`).join("")}</ul>` : `<p class="lede">Nothing yet. At an event, open its listing and tap "I'm here".</p>`}
+    ${mine.length ? `<ul class="claims">${mine.map((s) => `<li>${esc(s.label || s.event)}</li>`).join("")}</ul>` : `<p class="lede">Your check-ins show here. At an event, open its listing and tap "I'm here".</p>`}
     <p class="hint">This list is kept on this device only. The Wheel itself never learns who checked in where.</p>
     <h2 class="sub">Sign out</h2>
     <p class="lede">Signing out takes your key and your check-in list off this browser. To come back as ${me ? esc(me.account) : "this pen name"}, you need the key, so copy it first.</p>
@@ -143,16 +143,16 @@ async function joinWheel(btn) {
   }
   $("#me-status").textContent = "Joining…";
   const r = await W.join();
-  if (!r.ok) { $("#me-status").textContent = r.why === "storage" ? "This browser won't keep the key (private window?). Try a normal window." : "The member service did not answer. Try again in a moment."; return; }
+  if (!r.ok) { $("#me-status").textContent = r.why === "storage" ? "This browser refused to keep the key (a private window?). Try a normal window." : "The member service failed to answer. Try again in a moment."; return; }
   toast("Joined");
   loadMe();
 }
 
 async function signIn() {
   const out = $("#restore-status");
-  if (!W.restore($("#restore-key").value)) { out.textContent = "That isn't a key from The Wheel. A key is 64 letters and numbers."; return; }
+  if (!W.restore($("#restore-key").value)) { out.textContent = "A key from The Wheel is 64 letters and numbers. Check what you pasted."; return; }
   const st = await W.status();
-  if (!st.member) { W.signOut(); out.textContent = "That key is not on this Wheel's members list. Check you copied all of it."; return; }
+  if (!st.member) { W.signOut(); out.textContent = "That key matches no member of this Wheel. Check you copied all of it."; return; }
   toast("Signed in");
   loadMe();
 }
@@ -161,7 +161,7 @@ function signOut(btn) {
   if (!btn.dataset.sure) {
     btn.dataset.sure = "1";
     btn.textContent = "Yes, sign out";
-    $("#signout-status").textContent = "Have you copied your key? Without it, this pen name stays on the list but you can't come back as it.";
+    $("#signout-status").textContent = "Have you copied your key? It is the one way back to this pen name; the pen name stays on the list either way.";
     return;
   }
   W.signOut();
@@ -183,8 +183,8 @@ async function checkIn(btn) {
   try {
     const r = await W.showup(box.dataset.event, code, box.dataset.label);
     out.textContent = r.ok ? `Checked in. ${r.count} ${r.count === 1 ? "person has" : "people have"} checked in here.`
-      : ({ again: "You've already checked in here.", code: "That code doesn't match. Check it with the host.", closed: "Check-in isn't open for this event.", notmember: "Join first, on the Me page.", root: "The members list just changed. Tap again." }[r.why] || "That didn't work. Try again.");
-  } catch (e) { out.textContent = "Your device couldn't make the proof. Try again, or on another device."; }
+      : ({ again: "You've already checked in here.", code: "That code is wrong for this event. Check it with the host.", closed: "Check-in for this event is closed.", notmember: "Join first, on the Me page.", root: "The members list just changed. Tap again." }[r.why] || "That check-in failed. Try again.");
+  } catch (e) { out.textContent = "Your device failed to make the proof. Try again, or on another device."; }
   btn.disabled = false;
 }
 
@@ -192,9 +192,9 @@ async function openCheckin(btn) {
   const id = btn.dataset.opencheckin;
   const out = btn.closest(".actions").nextElementSibling;
   const r = await api("/api/zk/checkin", { event: id }).catch((e) => ({ ok: false, why: e.message }));
-  if (!r.ok) { out.textContent = "Couldn't open check-in: " + (r.why || "the member service did not answer") + "."; return; }
+  if (!r.ok) { out.textContent = "Opening check-in failed: " + (r.why || "the member service failed to answer") + "."; return; }
   const closes = new Date(r.closes).toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" });
-  out.innerHTML = `<div class="doorcode">${esc(r.code)}</div><p class="hint">Show this at the door. It works until ${esc(closes)} and is not stored anywhere; opening check-in again makes a new one.</p>`;
+  out.innerHTML = `<div class="doorcode">${esc(r.code)}</div><p class="hint">Show this at the door. It works until ${esc(closes)}. The Wheel keeps only a fingerprint of it to check against, and opening check-in again makes a new one.</p>`;
 }
 
 /* ---------- look ---------- */
@@ -338,7 +338,7 @@ function matches(ev) {
 }
 
 function when(ev) {
-  let s = ev.start_time ? (ev.end_time ? `${ev.start_time}–${ev.end_time}` : `from ${ev.start_time}`) : "Time not given";
+  let s = ev.start_time ? (ev.end_time ? `${ev.start_time}–${ev.end_time}` : `from ${ev.start_time}`) : "Time TBC";
   if (onEnd(ev) !== on(ev)) s += `, until ${d(onEnd(ev)).toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}`;
   return s;
 }
@@ -423,9 +423,9 @@ function renderList() {
   if (!html) {
     const any = state.events.some(inMode);
     html = any
-      ? state.range === "date" ? `<p class="empty">Nothing${allModes() ? "" : ` in ${MODES[state.mode].title}`} found for ${esc(fmtShort(state.date))}. Pick another date, or clear it to see everything coming up.</p>`
-      : `<p class="empty">Nothing in ${MODES[state.mode].title} matches. Clear the search or pick another chip.</p>`
-      : `<p class="empty">Nothing in ${MODES[state.mode].title} yet. <a href="#add">Add the first listing</a> from a post, a link or a flyer.</p>`;
+      ? state.range === "date" ? `<p class="empty">${allModes() ? "" : `${MODES[state.mode].title} on `}${esc(fmtShort(state.date))} is empty so far. Pick another date, or clear it to see everything coming up.</p>`
+      : `<p class="empty">The search and chips hide every listing in ${MODES[state.mode].title}. Clear the search or pick another chip.</p>`
+      : `<p class="empty">${MODES[state.mode].title} is empty so far. <a href="#add">Add the first listing</a> from a post, a link or a flyer.</p>`;
   }
   $("#list").innerHTML = html;
 }
@@ -658,8 +658,8 @@ function renderReview() {
   const open = upcoming.filter((e) => !e.mine).length;
   $("#rq-count").textContent = reviewQueue.length ? `${open} coming up to check${past.length ? `, ${past.length} already happened` : ""}${done.length ? `, ${done.length} checked by you` : ""}.` : "";
   $("#review-list").innerHTML = upcoming.length ? upcoming.map(reviewCard).join("")
-    : reviewQueue.length ? `<p class="empty">Nothing coming up matches. Clear the search or pick All.</p>`
-    : `<p class="empty">Nothing waiting. New listings land here when someone adds them.</p>`;
+    : reviewQueue.length ? `<p class="empty">The search hides everything coming up. Clear it or pick All.</p>`
+    : `<p class="empty">All checked. New listings land here when someone adds them.</p>`;
   $("#rq-past").hidden = !past.length;
   $("#rq-past-label").textContent = `Already happened (${past.length}): check these last, or mark them wrong`;
   $("#review-past").innerHTML = $("#rq-past").open ? past.map(reviewCard).join("") : "";
@@ -768,7 +768,7 @@ async function loadKinds() {
   const done = k.merged.map((m) => `<li><span><b>${esc(m.alias)}</b> shows as <b>${esc(m.canonical)}</b></span>
     <button type="button" class="quiet" data-kundo="${esc(m.alias)}">Undo</button></li>`).join("");
   box.innerHTML = `<p class="hint">${k.kinds} kinds in use, ${k.suggestions.length} suggestion${k.suggestions.length === 1 ? "" : "s"}.</p>
-    ${rows ? `<ul class="area-list kinds-list">${rows}</ul>` : `<p class="hint">Nothing to suggest right now.</p>`}
+    ${rows ? `<ul class="area-list kinds-list">${rows}</ul>` : `<p class="hint">Every kind looks tidy right now.</p>`}
     ${done ? `<h3 class="rm-group">Merged</h3><ul class="area-list kinds-list">${done}</ul>` : ""}`;
 }
 async function kindsAct(body, msg) {

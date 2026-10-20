@@ -52,7 +52,7 @@
     <div class="tagrow" id="kind-row"></div>
     <div class="tagrow" id="area-row"></div>
     <div class="toggles">
-      <label class="toggle"><input id="unreviewed" type="checkbox" checked> Show listings not reviewed yet</label>
+      <label class="toggle"><input id="unreviewed" type="checkbox" checked> Show listings still waiting for review</label>
       <label class="toggle"><input id="archive" type="checkbox"> Show what already happened</label>
     </div>
     <div id="list" aria-live="polite"></div>
@@ -128,15 +128,15 @@
       <li><b>The organiser keeps the door.</b> Listings link to the organiser's own page when there is one. Tickets and shift sign-ups happen there, with them.</li>
       <li><b>A person checks every listing.</b> Each one waits for a reviewer before it shows as checked, and links to where it was found.</li>
       <li><b>No ads, no analytics.</b> The Wheel carries no advertising and no tracking code of its own. What it knows about anyone stays off the market.</li>
-      <li><b>Hardware we own.</b> The Wheel runs on a machine we own and look after, outside any big platform's cloud.</li>
+      <li><b>Phone-free accounts.</b> Joining makes a key on your device and gives you a pen name. Adding and reviewing listings are tied to that pen name, so spam has a cost.</li>
+      <li><b>Proof in place of a list.</b> Members prove they belong, and that they turned up, with zero-knowledge proofs: The Wheel learns that a member checked in, and which member stays with them. The proof protects more as more people join; the <a href="#roadmap">Roadmap</a> shows the count.</li>
+      <li><b>Reputation that rewards the long run</b>, earned by listings and reviews that hold up, set after a study of how it can be gamed. <a href="#rep">How rep works</a>.</li>
+      <li><b>Group chats kept to members.</b> A group's invite link goes to signed-in members, with the organiser's OK, and senders' names and numbers come out of a pasted announcement before it is read. <a href="#chats">Joining group chats</a>.</li>
+      <li><b>Where it runs.</b> Listings and accounts live on a machine we own and look after. The page reaches you through Cloudflare, and a post or flyer you add is read by Anthropic's Claude to turn it into a listing.</li>
     </ul>
 
-    <h2>What we are building</h2>
-    <ul class="claims">
-      <li><b>Phone-free accounts</b>, so adding a listing is tied to a member, and spam has a cost.</li>
-      <li><b>Proof in place of a list.</b> Members prove they belong, and that they turned up, and The Wheel keeps no list of who went where. This uses zero-knowledge membership proofs, and it switches on once enough people have joined for the proof to protect anyone.</li>
-      <li><b>Reputation that rewards the long run</b>, earned by showing up and by good listings, set up after a study of how it can be gamed.</li>
-    </ul>
+    <h2>What comes next</h2>
+    <p>The <a href="#roadmap">Roadmap</a> holds what opens up as more people join.</p>
 
     <h2>Compared with a phone-number login</h2>
     <div class="compare-wrap">
@@ -145,7 +145,7 @@
         <tbody>
           <tr><th scope="row">To sign in</th><td>No phone number</td><td>Phone number: <i>"We collect your phone number primarily for the purpose of account login, multi-factor authentication"</i></td></tr>
           <tr><th scope="row">Who sees that you are going</th><td>You and the organiser, on the organiser's own page</td><td><i>"With event hosts when you register for events"</i></td></tr>
-          <tr><th scope="row">How long attendance is kept</th><td>Being built so that no list of who went where exists</td><td><i>"for so long as we reasonably consider it necessary"</i></td></tr>
+          <tr><th scope="row">How long attendance is kept</th><td>A check-in proves a member was there; which member stays with them</td><td><i>"for so long as we reasonably consider it necessary"</i></td></tr>
         </tbody>
       </table>
     </div>
@@ -323,7 +323,7 @@
       </div>
       <div class="give-way">
         <h3>Liberapay</h3>
-        <p class="hint">A few dollars a month by card, with nothing to install.</p>
+        <p class="hint">A few dollars a month by card, straight from your browser.</p>
         <p><a class="primary" href="https://liberapay.com/AureliusxRadix/" target="_blank" rel="noopener">Support on Liberapay</a></p>
       </div>
     </div>
@@ -348,7 +348,7 @@
 </div>
 
 <footer class="foot">
-  <span>Listings link to where they were found, when there is a page. Nothing here loads from a font or script host; the map tiles come from OpenStreetMap.</span>
+  <span>Listings link to where they were found, when there is a page. Fonts and scripts come with the page itself; the map tiles come from OpenStreetMap.</span>
   <span><a href="https://aureliusxradix.com/">A project by Aurelius × Radix →</a></span>
 </footer>
 <div id="toast" role="status" aria-live="polite" hidden></div>

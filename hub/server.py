@@ -59,7 +59,7 @@ JOIN_FIRST = "Join The Wheel first, on the Me page. It takes one tap."
 API_ONLY = os.environ.get("WHEEL_API_ONLY") == "1"
 ORIGINS = {o.strip() for o in os.environ.get("WHEEL_ORIGINS", "").split(",") if o.strip()}
 PRIVATE_FIELDS = ("deposited_by", "deposited_account", "deposit_day")  # who added a listing never leaves the server
-HELD = "The Wheel held this answer back: it carried something that must not leave the server."
+HELD = "The Wheel held this answer back: it carried something that stays on the server."
 GATE = None  # set in main(): the identity gate's compiled word list
 # Whole-site daily caps (2026-10-20, going live; provisional, his to change). Joining needs no account, so per-account
 # limits alone do not hold: a script could join without end, spend his Claude plan on readings, or fill the members
@@ -309,7 +309,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
-        self.fail(404, "Nothing at that address.")
+        self.fail(404, "That address is empty.")
 
     def fail(self, code: int, message: str):
         self.send(code, {"error": message})
@@ -399,9 +399,9 @@ class Handler(BaseHTTPRequestHandler):
             f = FLYERS / m.group(1)
             if f.is_file() and store.flyer_in_use(db(), m.group(1)):
                 return self.send(200, f.read_bytes(), "image/webp")
-            return self.fail(404, "Nothing at that address.")
+            return self.fail(404, "That address is empty.")
         if API_ONLY:
-            return self.fail(404, "Nothing at that address.")
+            return self.fail(404, "That address is empty.")
         if u.path == "/__wait":  # test aid: a slow pixel holds the page's load event for screenshots
             time.sleep(min(int(p.get("ms", ["2000"])[0]), 8000) / 1000)
             return self.send(200, base64.b64decode("R0lGODlhAQABAAAAACw="), "image/gif")
@@ -411,7 +411,7 @@ class Handler(BaseHTTPRequestHandler):
         f = (STATIC / name).resolve()
         if STATIC.resolve() in f.parents and f.is_file():
             return self.send(200, f.read_bytes(), TYPES.get(f.suffix, "application/octet-stream"))
-        return self.fail(404, "Nothing at that address.")
+        return self.fail(404, "That address is empty.")
 
     def do_POST(self):
         u = urlsplit(self.path)
@@ -432,7 +432,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 code, data = zk_call("POST", "/checkin", body=raw, admin=True)
                 return self.send(code, data)
-            return self.fail(404, "Nothing at that address.")
+            return self.fail(404, "That address is empty.")
         try:
             b = self.body()
             if u.path == "/api/read":
@@ -543,7 +543,7 @@ class Handler(BaseHTTPRequestHandler):
             if m:
                 store.delete_area(db(), int(m.group(1)))
                 return self.send(200, {"deleted": int(m.group(1))})
-            return self.fail(404, "Nothing at that address.")
+            return self.fail(404, "That address is empty.")
         except ValueError as exc:
             return self.fail(400, str(exc))
         except Exception as exc:  # the page gets a plain line; the server log keeps the detail
@@ -567,7 +567,7 @@ class Handler(BaseHTTPRequestHandler):
                     seen = out.get("visible_text") or ""
                     if gate.hit(GATE, seen):  # the flyer's own words carry a private mark: list it, never show it
                         sys.stderr.write("gate: a flyer was not kept (its text carries a private mark)\n")
-                        out["notes"].append("The flyer itself won't be shown on The Wheel; the listing can still go out.")
+                        out["notes"].append("The flyer itself stays off The Wheel; the listing can still go out.")
                     else:
                         kept = flyer.keep(FLYERS, flyer.clean(data))
                 for r in out["records"]:
@@ -589,7 +589,7 @@ class Handler(BaseHTTPRequestHandler):
             if b.get("chat") or chats.is_chat(raw):  # from a group chat: cleaned before the reader sees it
                 cleaned, links = chats.scrub(raw), chats.group_links(raw)
                 out = core.read(cleaned, received, allow_path=False) if cleaned.replace("[chat link]", "").strip() else \
-                    {"records": [], "notes": ["A group link on its own has nothing to read: paste the announcement with it."], "cost_usd": 0}
+                    {"records": [], "notes": ["A group link on its own gives the reader only a link: paste the announcement with it."], "cost_usd": 0}
                 for r in out["records"]:
                     r["chat_text"] = cleaned[:4000]
                     if links:
