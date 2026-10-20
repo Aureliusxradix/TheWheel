@@ -24,6 +24,10 @@ the site, under Additional info.
 - **The identity gate.** Every answer the server sends is checked against a private word list, and the server
   starts only with one in place (`hub/gate.py`). The list in this repository is a made-up one for tests; bring your
   own (`WHEEL_GATE_PATTERNS`, ten lines or more, one regular expression per line); the server needs it to start.
+- **Group chats.** A listing organised in a Signal, WhatsApp, Telegram or Discord group carries its invite link
+  for signed-in members only, kept only when the person adding it says the organiser shares it openly; links to
+  one person are refused. A pasted announcement loses senders' names, phone numbers, emails and @handles before
+  the reader sees it, and reviewers check the listing against that cleaned text (`hub/chats.py`).
 - **Pasted links** are fetched from the public internet only: the address the server dials must be public, so a
   link into the host's own network goes nowhere (`reader/netguard.py`).
 

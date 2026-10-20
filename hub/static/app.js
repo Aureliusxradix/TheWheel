@@ -7,7 +7,7 @@ if (new URLSearchParams(location.search).has("shot")) { const i = new Image(); i
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const state = { events: [], areas: [], today: "", mode: "night", range: "all", date: "", kind: null, area: null, facet: null, allKinds: false, favOnly: false };
+const state = { events: [], areas: [], today: "", mode: "night", range: "all", date: "", dateOnlyMode: false, kind: null, area: null, facet: null, allKinds: false, favOnly: false };
 
 /* Favourite kinds (his ask 2026-10-20: "personalisation of tags, as in a favorite system"). Kept in this browser only:
    The Wheel never learns what anyone favours. Starred kinds come first, and "My kinds" shows only listings with them. */
@@ -259,7 +259,9 @@ function renderMode() {
   $("#q").placeholder = m.search;
   if (state.range !== "date" && !m.ranges.some(([k]) => k === state.range)) state.range = "all";
   $("#ranges").innerHTML = m.ranges.map(([k, label]) => `<button type="button" data-range="${k}" class="${state.range === k ? "on" : ""}">${label}</button>`).join("") +
-    `<label class="pickday${state.range === "date" ? " on" : ""}">On a date <input type="date" id="pickday" min="${state.today}" value="${state.range === "date" ? state.date : ""}"></label>`;
+    `<label class="pickday${state.range === "date" ? " on" : ""}">On a date <input type="date" id="pickday" min="${state.today}" value="${state.range === "date" ? state.date : ""}"></label>` +
+    (state.range === "date" ? `<button type="button" data-onlymode="1" class="${state.dateOnlyMode ? "on" : ""}" aria-pressed="${state.dateOnlyMode}">Only ${m.title}</button>` : "");
+  $("#mode-lede").textContent = allModes() ? `Everything on ${fmtShort(state.date)}: Day, Night and Recovery together.` : m.lede;
   renderTerms();
   renderChips();
   renderList();
@@ -319,8 +321,9 @@ function renderChips() {
   $("#area-row").innerHTML = chipRow("Areas", state.areas.map((a) => [a.name, null]), "area", state.area);
 }
 
+const allModes = () => state.range === "date" && !state.dateOnlyMode;  // a date alone: every mode at once
 function matches(ev) {
-  if (!inMode(ev)) return false;
+  if (!allModes() && !inMode(ev)) return false;
   const q = $("#q").value.trim().toLowerCase();
   if (state.kind && !(ev.tags || []).includes(state.kind)) return false;
   if (state.favOnly && !(ev.tags || []).some((t) => favs.has(t))) return false;
@@ -353,9 +356,11 @@ function eventRow(ev, i = 0) {
   const volunteer = ev.listing_kind === "volunteer";
   const chips = [];
   if (volunteer) chips.push(`<span class="chip strong">Helpers wanted</span>`);
+  if (ev.chat_platform) chips.push(`<span class="chip">${esc(CHAT[ev.chat_platform] ? `${CHAT[ev.chat_platform]} group` : "Group chat")}</span>`);
   if (ev.recurrence) chips.push(`<span class="chip">Repeats: ${esc(ev.recurrence.slice(0, 50))}</span>`);
   if (ev.recurrence && !ev.next_date && onEnd(ev) < state.today) chips.push(`<span class="chip">Next date: check the link</span>`);
-  if ((ev.modes || []).includes("recovery") && state.mode !== "recovery") chips.push(`<span class="chip">Recovery</span>`);
+  if (allModes()) (ev.modes || []).forEach((md) => chips.push(`<span class="chip strong">${esc(MODES[md]?.title || md)}</span>`));
+  else if ((ev.modes || []).includes("recovery") && state.mode !== "recovery") chips.push(`<span class="chip">Recovery</span>`);
   (ev.areas || []).forEach((a) => chips.push(`<span class="chip">${esc(a)}</span>`));
   (ev.tags || []).slice(0, 4).forEach((t) => chips.push(`<span class="chip">${esc(t)}</span>`));
   const src = ev.website || ev.source?.url;  // where to sign up: the organiser's page first
@@ -418,7 +423,7 @@ function renderList() {
   if (!html) {
     const any = state.events.some(inMode);
     html = any
-      ? state.range === "date" ? `<p class="empty">Nothing in ${MODES[state.mode].title} found for ${esc(fmtShort(state.date))}. Pick another date, or clear it to see everything coming up.</p>`
+      ? state.range === "date" ? `<p class="empty">Nothing${allModes() ? "" : ` in ${MODES[state.mode].title}`} found for ${esc(fmtShort(state.date))}. Pick another date, or clear it to see everything coming up.</p>`
       : `<p class="empty">Nothing in ${MODES[state.mode].title} matches. Clear the search or pick another chip.</p>`
       : `<p class="empty">Nothing in ${MODES[state.mode].title} yet. <a href="#add">Add the first listing</a> from a post, a link or a flyer.</p>`;
   }
@@ -432,6 +437,17 @@ function flyerImg(ev) {
   return f && /^[0-9a-f]{16}\.webp$/.test(f)
     ? `<a class="flyer" href="${API}/api/flyer/${f}" target="_blank" rel="noopener"><img src="${API}/api/flyer/${f}" alt="The flyer for ${esc(ev.name)}" loading="lazy"></a>` : "";
 }
+// listings organised in a group chat (his rulings 2026-10-21): the link to members with the organiser's OK
+const CHAT = { signal: "Signal", whatsapp: "WhatsApp", telegram: "Telegram", discord: "Discord", other: "" };
+const chatName = (ev) => (CHAT[ev.chat_platform] ? `a ${CHAT[ev.chat_platform]} group` : "a group chat");
+function chatLine(ev) {
+  if (!ev.chat_platform) return "";
+  const guide = `<a href="#chats">Joining group chats: keeping private</a>`;
+  if (ev.chat_link) return `<div class="chatline">Organised in ${chatName(ev)}. <a href="${esc(ev.chat_link)}" target="_blank" rel="noopener noreferrer">Join the group</a>. Before you join: ${guide}.</div>`;
+  if (ev.chat_link_hidden) return `<div class="chatline">Organised in ${chatName(ev)}. <a href="#me">Sign in</a> to see how to join. ${guide}.</div>`;
+  return `<div class="chatline">Organised in ${chatName(ev)}: ask the organiser to add you. ${guide}.</div>`;
+}
+
 function whereFrom(ev) {
   const found = ev.source?.url && ev.source.url !== ev.website ? ev.source.url : null;
   const out = [];
@@ -439,8 +455,8 @@ function whereFrom(ev) {
   if (ev.tickets_url) out.push(`<div><a href="${esc(ev.tickets_url)}" target="_blank" rel="noopener">Tickets</a></div>`);
   if (found) out.push(`<div><a href="${esc(found)}" target="_blank" rel="noopener">Where we found it</a></div>`);
   if (ev.source?.flyer) out.push(`<div class="hint">Found on a flyer${ev.website ? "" : ", no page online"}.</div>${flyerImg(ev)}`);
-  else if (!ev.website && !found) out.push(`<div class="hint">From a post, no page online.</div>`);
-  return out.join("");
+  else if (!ev.website && !found && !ev.chat_platform) out.push(`<div class="hint">From a post, no page online.</div>`);
+  return chatLine(ev) + out.join("");
 }
 
 /* ---------- the listing editor (add and review share it) ---------- */
@@ -496,14 +512,27 @@ function editorHtml(ev, prefix) {
       <div class="slots-label">Shifts</div>
       <div class="slots">${(ev.slots || []).map(slotRow).join("")}</div>
       <button type="button" class="linklike" data-addslot="1">Add a shift</button>
-    </div>`;
+    </div>
+    <details class="chat-pick"${ev.chat_platform ? " open" : ""}><summary>Organised in a group chat?</summary>
+      <label for="${prefix}-cp">The app</label>
+      <select id="${prefix}-cp" data-k="chat_platform"><option value="">(leave empty)</option>${Object.entries(CHAT).map(([k, n]) =>
+        `<option value="${k}"${ev.chat_platform === k ? " selected" : ""}>${n || "Another app"}</option>`).join("")}</select>
+      <label for="${prefix}-cl">The group's invite link (signed-in members see it)</label>
+      <input id="${prefix}-cl" data-k="chat_link" type="text" value="${esc(ev.chat_link || "")}" placeholder="https://signal.group/#…">
+      <label class="tick"><input type="checkbox" data-k="chat_link_ok"${ev.chat_link_ok ? " checked" : ""}> The organiser shares this link openly: on a flyer, in a public post, or by asking for it to be passed on.</label>
+      <p class="hint">Links to one person (wa.me, signal.me, a Telegram username) stay out. <a href="#chats">Joining group chats</a></p>
+      ${ev.chat_text != null ? `<label for="${prefix}-ct">The announcement, as reviewers see it</label>
+      <textarea id="${prefix}-ct" data-k="chat_text" rows="5">${esc(ev.chat_text)}</textarea>
+      <p class="hint">Senders' names, phone numbers, emails and @handles are already out. Take out anything else that names a person.</p>` : ""}
+    </details>`;
 }
 
 function readEditor(card) {
   const out = {};
   $$("[data-k]", card).forEach((el) => {
     const k = el.dataset.k;
-    out[k] = k === "tags" || k === "requirements" ? el.value.split(",").map((t) => t.trim()).filter(Boolean) : el.value;
+    out[k] = el.type === "checkbox" ? el.checked
+      : k === "tags" || k === "requirements" ? el.value.split(",").map((t) => t.trim()).filter(Boolean) : el.value;
   });
   out.modes = $$("[data-mode]", card).filter((c) => c.checked).map((c) => c.dataset.mode);
   out.slots = out.listing_kind === "volunteer"
@@ -542,13 +571,14 @@ async function readDeposit(e) {
   $("#add-status").textContent = "Reading it. This takes between 5 and 30 seconds.";
   $("#found").innerHTML = "";
   try {
-    const out = await api("/api/read", { text, image: flyer });
+    const out = await api("/api/read", { text, image: flyer, chat: $("#add-chat").checked });
     $("#add-status").textContent = out.records.length
       ? `Found ${out.records.length} listing${out.records.length > 1 ? "s" : ""}. Check each one, fix anything wrong, then send it for review.`
       : `Nothing to list. ${out.notes.join(" ")}`;
     $("#found").innerHTML = out.records.map((ev, i) => `<div class="card" data-i="${i}">
       <h2>${esc(ev.name)}</h2>${dupWarn(ev)}${flyerImg(ev)}
-      ${!ev.website && !ev.source?.url ? `<div class="warn">Where can people find this online? If the organiser has a page or a post, put its link in "Organiser's page or post" below. If there is none, it goes out marked "no page online"${ev.source?.flyer ? ", with the flyer shown" : ""}.</div>` : ""}
+      ${ev.chat_platform ? `<div class="warn">From ${esc(chatName(ev))}. Check the cleaned announcement and the group link under "Organised in a group chat" below.</div>` : ""}
+      ${!ev.website && !ev.source?.url && !ev.chat_platform ? `<div class="warn">Where can people find this online? If the organiser has a page or a post, put its link in "Organiser's page or post" below. If there is none, it goes out marked "no page online"${ev.source?.flyer ? ", with the flyer shown" : ""}.</div>` : ""}
       ${editorHtml(ev, `f${i}`)}
       <div class="actions"><button type="button" class="primary" data-send="${i}">Send for review</button>
       <button type="button" class="quiet" data-drop="${i}">Leave this one out</button></div></div>`).join("");
@@ -591,9 +621,12 @@ function reviewCard(ev) {
       ${ev.recurrence ? `<div class="rv-where">Repeats: ${esc(ev.recurrence)}${ev.next_date ? ` (shown on its next date; found for ${esc(fmtShort(ev.start_date))})` : ""}</div>` : ""}
       ${where || ev.price ? `<div class="rv-where">${esc([where, ev.price].filter(Boolean).join(" · "))}</div>` : ""}
       ${modeNames ? `<div class="rv-where">Shows in: ${esc(modeNames)}${ev.extraction?.modes_by ? " (set by a batch pass)" : ""}</div>` : ""}
-      <div class="source">${src ? `Check it against <a href="${esc(src)}" target="_blank" rel="noopener">the page it came from</a>.` : ev.source?.flyer ? "Read from a flyer. Check the listing against the flyer; the flyer goes out with it." : ev.website ? `Pasted in. Check it against <a href="${esc(ev.website)}" target="_blank" rel="noopener">the organiser's page</a>.` : "Pasted in, with no page to check against."}</div>
+      ${ev.chat_text ? `<div class="source">From ${esc(chatName(ev))}. Check the listing against the announcement (names and numbers taken out):</div><blockquote class="chat-src">${esc(ev.chat_text)}</blockquote>`
+        : ev.chat_text_hidden ? `<div class="source">From ${esc(chatName(ev))}. <a href="#me">Sign in</a> to see the announcement it came from.</div>` : ""}
+      ${ev.chat_link ? `<div class="source">Group link (members see it): <a href="${esc(ev.chat_link)}" target="_blank" rel="noopener noreferrer">${esc(ev.chat_link)}</a></div>` : ""}
+      <div class="source"${ev.chat_platform && !src && !ev.website ? " hidden" : ""}>${src ? `Check it against <a href="${esc(src)}" target="_blank" rel="noopener">the page it came from</a>.` : ev.source?.flyer ? "Read from a flyer. Check the listing against the flyer; the flyer goes out with it." : ev.website ? `Pasted in. Check it against <a href="${esc(ev.website)}" target="_blank" rel="noopener">the organiser's page</a>.` : "Pasted in, with no page to check against."}</div>
       ${flyerImg(ev)}
-      ${!ev.website && !src ? `<div class="warn">No link yet: it goes out marked "no page online".${canFix ? " Add the organiser's page under Fix details if you know it." : ""}</div>` : ""}
+      ${!ev.website && !src && !ev.chat_platform ? `<div class="warn">No link yet: it goes out marked "no page online".${canFix ? " Add the organiser's page under Fix details if you know it." : ""}</div>` : ""}
       ${notes ? `<div class="warn">${esc(notes)}</div>` : ""}${dupWarn(ev)}
       <div class="source">${esc(sure)}${ev.my_verdict ? ` You said: ${ev.my_verdict === "approve" ? "right" : "wrong"}.` : ""}</div>
       ${ev.mine ? `<p class="hint">You added this one, so someone else checks it.</p>` : `<div class="actions"><button type="button" class="primary" data-act="approve">It's right</button>
@@ -815,7 +848,7 @@ function route() {
   $("#view-mode").hidden = !isMode;
   $$(".view").forEach((v) => { if (v.id !== "view-mode") v.hidden = v.id !== `view-${view}`; });
   $$(".top nav a").forEach((a) => a.classList.toggle("on", a.dataset.view === view || (a.dataset.view === "events" && isMode)));
-  $("#more-menu").classList.toggle("on", ["roadmap", "rep"].includes(view));
+  $("#more-menu").classList.toggle("on", ["roadmap", "rep", "chats"].includes(view));
   $("#more-menu").open = false;
   $("#events-link").setAttribute("href", `#${state.mode}`);
   if (isMode) loadEvents().catch((e) => ($("#list").innerHTML = `<p class="empty">${esc(e.message)}</p>`));
@@ -840,6 +873,7 @@ document.addEventListener("click", (e) => {
   }
   if (t.dataset.guideclose) { closeGuide(); return; }
   if (t.dataset.range) { state.range = t.dataset.range; renderMode(); }
+  if (t.dataset.onlymode) { state.dateOnlyMode = !state.dateOnlyMode; renderMode(); }
   if (t.dataset.morekinds) { state.allKinds = !state.allKinds; renderChips(); }
   if (t.dataset.fav) { const k = t.dataset.fav; favs.has(k) ? favs.delete(k) : favs.add(k); saveFavs(); if (!favs.size) state.favOnly = false; renderChips(); renderList(); return; }
   if (t.dataset.favfilter) { state.favOnly = !state.favOnly; renderChips(); renderList(); return; }

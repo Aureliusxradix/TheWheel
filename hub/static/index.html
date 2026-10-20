@@ -29,6 +29,7 @@
         <a href="#roadmap" data-view="roadmap">Roadmap</a>
         <a href="#" data-guide="1">How it works</a>
         <a href="#rep" data-view="rep">How rep works</a>
+        <a href="#chats" data-view="chats">Joining group chats</a>
       </div>
     </details>
     <a href="#me" data-view="me" class="me-link">Me</a>
@@ -69,6 +70,8 @@
     <form id="add-form">
       <label for="add-text">Post or link</label>
       <textarea id="add-text" rows="6" placeholder="Paste the caption, the message, or a link to the event page"></textarea>
+      <label class="tick"><input type="checkbox" id="add-chat"> It's from a group chat (Signal, WhatsApp, Telegram, Discord)</label>
+      <p class="hint">Senders' names, phone numbers, emails and @handles are taken out before The Wheel reads it. Add a group's link only when the organiser shares it openly. <a href="#chats">Joining group chats</a></p>
       <div id="drop" class="drop" tabindex="0">
         <input id="add-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
         <span id="drop-label">Drop a flyer here, or <button type="button" id="pick" class="linklike">choose an image</button></span>
@@ -270,6 +273,40 @@
       <li><b>Turning up to events:</b> check-ins stay apart from pen names by design. Counting them toward rep is on the <a href="#roadmap">Roadmap</a>, once check-ins are hard to fake.</li>
     </ul>
     <p class="hint">Version 1. The numbers will change as The Wheel learns what works. Your rep and tier are on the <a href="#me">Me</a> page.</p>
+  </section>
+
+  <section id="view-chats" class="view prose" aria-labelledby="h-chats" hidden>
+    <h1 id="h-chats">Joining group chats</h1>
+    <p class="lede">Some gatherings are organised in a group chat. The Wheel lists the gathering and, when the organiser shares it openly, the link to the group, for signed-in members. The group belongs to its organiser and runs on its app's terms: what you share there stays between you, the people in it and the app.</p>
+
+    <h2>Before you join any group</h2>
+    <ul class="claims">
+      <li><b>Everyone in a group sees your profile name and photo.</b> A first name or a nickname works, and a photo of something other than your face.</li>
+      <li><b>Anything you post can be screenshotted and passed on.</b> Keep where you live, work and travel for people you know.</li>
+      <li><b>A group link opens the group to whoever holds it.</b> Pass it on the way the organiser asks.</li>
+      <li><b>Leave a group once the gathering is over</b>, unless you want to stay for the next one.</li>
+    </ul>
+
+    <h2>Signal</h2>
+    <p>Signal shows your phone number only to people who already have it saved. To check: Settings, Privacy, Phone number. "Who can see my number" is set to "Nobody" by default. Set "Who can find me by my number" to "Nobody" as well if you'd like people to reach you by a username only, and pick a username in your profile.</p>
+
+    <h2>WhatsApp</h2>
+    <p>Everyone in a WhatsApp group sees your phone number. WhatsApp is rolling out usernames in stages through 2026: when your app has Settings, Account, Username, set one, and people see the username in place of your number unless they already have it saved. Until then, a second number (a prepaid SIM) keeps your own number to yourself.</p>
+
+    <h2>Telegram</h2>
+    <p>Telegram shows your number only to people you've saved as contacts, and you can post in groups with your number hidden. For more: Settings, Privacy and Security, Phone Number, and set "Who can see my phone number" to "Nobody". A username lets people reach you by name.</p>
+
+    <h2>Discord</h2>
+    <p>Discord shows your display name; your phone number and email stay with Discord. To keep strangers in a server from messaging you: User Settings, Content &amp; Social, and turn off direct messages from server members. You can apply it to every server, or set it per server in that server's privacy settings.</p>
+
+    <h2>Adding a listing from a group chat</h2>
+    <ul class="claims">
+      <li><b>Paste the announcement and tick "It's from a group chat".</b> The Wheel takes out senders' names, phone numbers, emails, @handles and chat links before it reads it.</li>
+      <li><b>Add the group's link only when the organiser shares it openly</b>: on a flyer, in a public post, or by asking for it to be passed on. Signed-in members see it; everyone else sees that the gathering has a group.</li>
+      <li><b>Links to one person stay out:</b> wa.me and signal.me links, and Telegram usernames.</li>
+      <li><b>Check the cleaned announcement before you send it.</b> Reviewers check the listing against it, so take out anything else that names a person.</li>
+    </ul>
+    <p class="hint">Checked 21 October 2026 against Signal's and Telegram's own pages, Discord's help centre and reports of WhatsApp's usernames. Apps change their settings: the app's own help has the latest.</p>
   </section>
 
   <section id="view-support" class="view prose" aria-labelledby="h-support" hidden>

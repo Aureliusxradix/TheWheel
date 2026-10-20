@@ -33,7 +33,7 @@ from urllib.parse import parse_qs, urlsplit
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from hub import flyer, gate, kinds, repeats, rep, store  # noqa: E402
+from hub import chats, flyer, gate, kinds, repeats, rep, store  # noqa: E402
 from reader import core  # noqa: E402
 
 STATIC = ROOT / "hub" / "static"
@@ -47,7 +47,9 @@ TYPES = {".wasm": "application/wasm", ".html": "text/html; charset=utf-8", ".js"
          ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png"}
 EDITABLE = {"name", "summary", "description", "start_date", "start_time", "end_date", "end_time", "recurrence",
             "status", "location_name", "location_address", "location_locality", "price", "website",
-            "tickets_url", "tags", "organiser", "online", "modes", "listing_kind", "slots", "requirements"}
+            "tickets_url", "tags", "organiser", "online", "modes", "listing_kind", "slots", "requirements",
+            "chat_platform", "chat_link", "chat_link_ok", "chat_text"}
+MEMBERS_ONLY = ("chat_link", "chat_link_ok", "chat_text")  # a group's link and its announcement: signed-in members only
 MODES = {"day", "night", "recovery"}
 MAX_BODY = 12 * 1024 * 1024
 ZK = os.environ.get("WHEEL_ZK_URL", "http://127.0.0.1:8792")  # zk/server.mjs, the member service (zk/run.sh)
@@ -112,6 +114,26 @@ def clean(rec: dict, edits: dict) -> dict:
             v = str(v or "").strip() or None
             if v and not re.fullmatch(r"https?://[^\s<>\"']+", v):
                 raise ValueError("Links need to be web addresses starting https://")
+            c = chats.classify(v) if v else None
+            if c and c[0] == "group":
+                raise ValueError("That's a group chat's link: put it under \"Organised in a group chat\", where members only see it.")
+            if c:
+                raise ValueError(chats.PERSON_TEXT)
+        elif k == "chat_platform":
+            v = v if v in chats.PLATFORMS else None
+        elif k == "chat_link":
+            v = str(v or "").strip() or None
+            c = chats.classify(v) if v else None
+            if v and not c:
+                raise ValueError(chats.LINKS_HELP)
+            if c and c[0] == "person":
+                raise ValueError(chats.PERSON_TEXT)
+            if c:
+                rec["chat_platform"] = c[1]
+        elif k == "chat_link_ok":
+            v = True if v in (True, 1, "1", "true", "on") else None
+        elif k == "chat_text":
+            v = chats.scrub(str(v or ""))[:4000] or None
         elif k == "listing_kind":
             v = v if v in ("event", "volunteer") else "event"
         elif k == "slots":
@@ -129,6 +151,10 @@ def clean(rec: dict, edits: dict) -> dict:
             rec.pop(k, None)
         else:
             rec[k] = v
+    if rec.get("chat_link") and not rec.get("chat_link_ok"):  # his ruling 2026-10-21: the organiser's word decides
+        raise ValueError("Tick that the organiser shares this group link openly, or take the link out.")
+    if rec.get("chat_link"):
+        rec["chat_platform"] = chats.classify(rec["chat_link"])[1]  # the link names its app
     rec["time_known"] = bool(rec.get("start_time"))
     if not rec.get("modes"):
         raise ValueError("Pick at least one mode: Day, Night or Recovery.")
@@ -176,6 +202,18 @@ def shown_suggestions(sugs: list[dict]) -> list[dict]:
     return out
 
 
+def for_viewer(rec: dict, member: bool) -> dict:
+    """A group's link and announcement go to signed-in members; everyone else learns there is a way in."""
+    if not member:
+        if rec.get("chat_link"):
+            rec["chat_link_hidden"] = True
+        if rec.get("chat_text"):
+            rec["chat_text_hidden"] = True
+        for k in MEMBERS_ONLY:
+            rec.pop(k, None)
+    return rec
+
+
 def public(rec: dict) -> dict:
     for k in PRIVATE_FIELDS:
         rec.pop(k, None)
@@ -207,7 +245,7 @@ def dated(r: dict, today: str) -> dict:
     return r
 
 
-def listing(params: dict) -> dict:
+def listing(params: dict, member: bool = False) -> dict:
     states = ("approved", "pending") if params.get("unreviewed", ["1"])[0] == "1" else ("approved",)
     all_areas = store.areas(db())
     today = datetime.now(TZ).date().isoformat()
@@ -220,7 +258,7 @@ def listing(params: dict) -> dict:
         dated(r, today)
         r["areas"] = store.areas_for(r, all_areas)
         r["certainty"] = settle(dict(r))["certainty"]
-        out.append(r)
+        out.append(for_viewer(r, member))
     tags: dict[str, int] = {}
     for r in out:
         for t in r.get("tags", []):
@@ -320,7 +358,8 @@ class Handler(BaseHTTPRequestHandler):
             code, data = zk_call("GET", u.path[7:], u.query)
             return self.send(code, data)
         if u.path == "/api/events":
-            return self.send(200, listing(p))
+            member = bool(self.headers.get("Authorization")) and self.account() is not None
+            return self.send(200, listing(p, member))
         if u.path == "/api/review":
             mine = self.account()
             t = rep.tier(db(), mine) if mine else -1
@@ -337,7 +376,7 @@ class Handler(BaseHTTPRequestHandler):
                 r["my_suggestion"] = bool(mine) and any(sg["account"] == mine for sg in sugs)
                 if t >= 2 and sugs:  # suggested fixes go to those who can use them
                     r["suggestions"] = shown_suggestions(sugs)
-                public(r)
+                for_viewer(public(r), bool(mine))
             return self.send(200, {"events": recs, "me": rep.summary(db(), mine) if mine else None})
         if u.path == "/api/me":
             acct = self.account()
@@ -537,8 +576,9 @@ class Handler(BaseHTTPRequestHandler):
                         r["source"]["flyer"] = kept
             finally:
                 Path(f.name).unlink(missing_ok=True)  # the upload as sent (with any GPS in it) is never kept
-            if b.get("text"):  # a caption sent with the flyer: read it too
-                more = core.read(b["text"], received, allow_path=False)
+            if b.get("text"):  # a caption sent with the flyer: read it too (cleaned first when it came from a chat)
+                cap = chats.scrub(b["text"]) if b.get("chat") or chats.is_chat(b["text"]) else b["text"]
+                more = core.read(cap, received, allow_path=False)
                 out["records"] += more["records"]
                 out["notes"] += more["notes"]
                 out["cost_usd"] += more["cost_usd"]
@@ -546,9 +586,20 @@ class Handler(BaseHTTPRequestHandler):
             raw = (b.get("text") or "").strip()
             if not raw:
                 raise ValueError("Paste a post or a link, or add a flyer.")
-            out = core.read(raw, received, allow_path=False)
+            if b.get("chat") or chats.is_chat(raw):  # from a group chat: cleaned before the reader sees it
+                cleaned, links = chats.scrub(raw), chats.group_links(raw)
+                out = core.read(cleaned, received, allow_path=False) if cleaned.replace("[chat link]", "").strip() else \
+                    {"records": [], "notes": ["A group link on its own has nothing to read: paste the announcement with it."], "cost_usd": 0}
+                for r in out["records"]:
+                    r["chat_text"] = cleaned[:4000]
+                    if links:
+                        r["chat_platform"], r["chat_link"] = links[0]
+                    r.setdefault("chat_platform", "other")
+            else:
+                out = core.read(raw, received, allow_path=False)
         out.pop("visible_text", None)
         for r in out["records"]:
+            chats.sort_links(r)
             r["duplicates"] = store.likely_duplicates(db(), r)
             public(r)
         return out
