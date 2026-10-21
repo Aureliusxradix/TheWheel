@@ -4,6 +4,7 @@
 
 Uses a made-up word list (tests/fixtures/gate-patterns.txt); the real one is private and is kept out of this repository.
 """
+import hashlib
 import json
 import os
 import socket
@@ -84,7 +85,7 @@ class ApiOnly(unittest.TestCase):
         store.put(db, event("b" * 16, "Open mic with Fakename"))
         cls.port = free_port()
         env = {**os.environ, "WHEEL_GATE_PATTERNS": str(FIXTURE), "WHEEL_API_ONLY": "1", "WHEEL_ORIGINS": SITE,
-               "WHEEL_ZK_URL": "http://127.0.0.1:9", "WHEEL_JOINS_PER_DAY": "2", "EVENTHUB_DB": str(store.DB)}
+               "WHEEL_ZK_URL": "http://127.0.0.1:9", "WHEEL_JOINS_PER_DAY": "2", "WHEEL_JOIN_WORK_BITS": "10", "EVENTHUB_DB": str(store.DB)}
         cls.proc = subprocess.Popen([sys.executable, "-E", "-s", str(ROOT / "hub" / "server.py"), "--port", str(cls.port)],
                                     env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         for _ in range(50):
@@ -131,9 +132,13 @@ class ApiOnly(unittest.TestCase):
 
     def test_whole_site_join_cap(self):
         codes = []
-        for _ in range(3):
-            req = urllib.request.Request(f"http://127.0.0.1:{self.port}/api/zk/join", data=b'{"commitment": "5"}',
-                                         method="POST", headers={"content-type": "application/json"})
+        for _ in range(3):  # each with the join work done (his "Do A-F", 2026-10-22), so the cap is what answers
+            w = json.loads(urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{self.port}/api/zk/join-work",
+                                                                         data=b"{}", method="POST"), timeout=10).read())
+            n = next(i for i in range(1 << 24) if int.from_bytes(hashlib.sha256(f"{w['nonce']}:5:{i}".encode()).digest(), "big") >> (256 - w["bits"]) == 0)
+            req = urllib.request.Request(f"http://127.0.0.1:{self.port}/api/zk/join", method="POST",
+                                         data=json.dumps({"commitment": "5", "work": {"nonce": w["nonce"], "n": n}}).encode(),
+                                         headers={"content-type": "application/json"})
             try:
                 codes.append(urllib.request.urlopen(req, timeout=10).status)
             except urllib.error.HTTPError as e:

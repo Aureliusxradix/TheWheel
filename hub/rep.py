@@ -10,6 +10,8 @@ cheating, paid promotion).
   depends on rep earned afterwards.
 - Certainty that a listing is right: 1 - (1 - w1)(1 - w2)... over the approving reviews; the same for rejecting.
   A listing settles at SETTLE either way.
+- New members' reviews together count up to NEW_CAP, below SETTLE, so settling needs at least one Regular or above
+  (his "Do A-F", 2026-10-22: six fresh accounts held by one person could settle a listing and farm rep).
 """
 
 from datetime import date, timedelta
@@ -17,6 +19,7 @@ from datetime import date, timedelta
 WEIGHT = {0: 0.2, 1: 0.4, 2: 0.7, 3: 0.9}
 TIER_NAME = {0: "New", 1: "Regular", 2: "Reviewer", 3: "Steward"}
 SETTLE = 0.7
+NEW_CAP = 0.5  # all New reviews on one side together; below SETTLE on purpose
 DEPOSIT_POINTS, DEPOSIT_PENALTY, DEPOSIT_WEEK_CAP = 2, -2, 5
 REVIEW_POINTS, REVIEW_PENALTY, REVIEW_WEEK_CAP = 1, -1, 5
 DAILY_DEPOSITS = {0: 3, 1: 10, 2: 10, 3: 50}  # the study's day one: 3 a day for a new member
@@ -28,7 +31,11 @@ def certainty(weights_for: list[float], weights_against: list[float]) -> tuple[f
         for w in ws:
             miss *= (1 - w)
         return 1 - miss
-    return round(combine(weights_for), 3), round(combine(weights_against), 3)
+
+    def side(ws):
+        new = min(combine([w for w in ws if w <= WEIGHT[0]]), NEW_CAP)  # a review's weight is its tier's when cast
+        return combine([new] + [w for w in ws if w > WEIGHT[0]])
+    return round(side(weights_for), 3), round(side(weights_against), 3)
 
 
 def settled_state(cert_for: float, cert_against: float) -> str:
@@ -86,6 +93,12 @@ def tier(db, account: str) -> int:
     review_part = p  # v1: listings and reviews are the only sources, so all of p counts toward Reviewer
     earned = 2 if p >= 30 and review_part >= 20 else 1 if p >= 10 and age >= 14 else 0
     return max(earned, row["granted_tier"] or 0)  # a tier given by hand (his ask 2026-10-21) is a floor; a ban clears it
+
+
+def active(db) -> int:
+    """Members in good standing (Regular and up): the people a check-in can count on hiding among. Every joined key
+    counts in the members list; a spare account adds a name there and a person here only once others confirm its work."""
+    return sum(1 for r in db.execute("SELECT account FROM accounts") if tier(db, r["account"]) >= 1)
 
 
 def summary(db, account: str) -> dict:

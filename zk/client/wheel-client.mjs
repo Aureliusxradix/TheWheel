@@ -35,6 +35,20 @@ async function identity(create = false) {
   return new Identity(await sha256hex(`${m}:wheel`))
 }
 
+// The hub's join work (hub/server.py work_ok): find n with sha256("nonce:commitment:n") starting in `bits` zero bits.
+// Hashed in batches so the browser's crypto runs them together.
+export async function solveWork(nonce, commitment, bits) {
+  const enc = new TextEncoder()
+  for (let base = 0; ; base += 256) {
+    const hs = await Promise.all(Array.from({ length: 256 }, (_, i) => crypto.subtle.digest("SHA-256", enc.encode(`${nonce}:${commitment}:${base + i}`))))
+    for (let i = 0; i < 256; i++) {
+      let z = 0
+      for (const x of new Uint8Array(hs[i])) { if (x === 0) { z += 8; continue } z += Math.clz32(x) - 24; break }
+      if (z >= bits) return base + i
+    }
+  }
+}
+
 export function createWheel({ api, zk }) {
   const call = async (p, body) => {
     const r = await fetch(api + p, {
@@ -58,7 +72,11 @@ export function createWheel({ api, zk }) {
     async join() {
       const id = await identity(true)
       if (!id) return { ok: false, why: "storage" }
-      const r = await call("/join", { commitment: id.commitment.toString() })
+      const commitment = id.commitment.toString()
+      const w = await call("/join-work", {}) // a few seconds of work first: cheap once, a cost per account in bulk
+      if (w.status !== 200 || !w.json?.nonce) return { ok: false, why: "offline" }
+      const n = await solveWork(w.json.nonce, commitment, Math.min(Number(w.json.bits) || 0, 24))
+      const r = await call("/join", { commitment, work: { nonce: w.json.nonce, n } })
       return r.status === 200 ? { ok: true, size: r.json.size } : { ok: false, why: r.json?.why || "offline" }
     },
     async showup(event, code, label) {
@@ -130,3 +148,4 @@ export function createWheel({ api, zk }) {
 }
 
 window.createWheel = createWheel
+window.solveWheelWork = solveWork // the browser self-test joins filler members with it

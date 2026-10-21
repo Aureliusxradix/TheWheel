@@ -12,8 +12,14 @@
   try {
     localStorage.clear(); sessionStorage.clear();
     const W = createWheel({ api: API + "/api/zk", zk: "/zk/" });
-    res.join = (await W.join()).ok;
-    for (let i = 1; i <= 2; i++) await call("/api/zk/join", { commitment: String(1000003n * BigInt(i) + 7n) });
+    const t0 = performance.now();
+    res.join = (await W.join()).ok;  // with the join work (his "Do A-F", 2026-10-22)
+    res.join_ms = Math.round(performance.now() - t0);
+    res.join_nowork = (await call("/api/zk/join", { commitment: "424242" })).status === 400;
+    for (let i = 1; i <= 2; i++) {
+      const c = String(1000003n * BigInt(i) + 7n), w = (await call("/api/zk/join-work", {})).json;
+      await call("/api/zk/join", { commitment: c, work: { nonce: w.nonce, n: await solveWheelWork(w.nonce, c, w.bits) } });
+    }
     // check-in (as before)
     const ev = "abcdef0123456789";
     const open = await call("/api/zk/checkin", { event: ev });
@@ -42,7 +48,7 @@
     res.review_b = rv.status; res.certainty_after_b = rv.json.event && rv.json.event.certainty; res.edit_applied_as_new = rv.json.edited;
     res.name_kept = rv.json.event && rv.json.event.name === "Selftest listing";
     res.state_after_b = rv.json.event && rv.json.event.review.state;
-    res.PASS = res.signout_clears && res.restore_bad && res.restore_member && res.same_pen_after_signin && res.join && !res.checkin_needs_steward === false && res.login_a && res.me_a && res.me_a.tier === 0 && res.submit_nologin === 401 && res.submit_a === 200
+    res.PASS = res.join_nowork && res.signout_clears && res.restore_bad && res.restore_member && res.same_pen_after_signin && res.join && !res.checkin_needs_steward === false && res.login_a && res.me_a && res.me_a.tier === 0 && res.submit_nologin === 401 && res.submit_a === 200
       && res.review_own === 403 && res.areas_a === 403 && res.login_b && res.pens_differ && res.review_b === 200
       && res.certainty_after_b && res.certainty_after_b.for === 0.2 && res.edit_applied_as_new === false && res.name_kept && res.state_after_b === "pending";
   } catch (e) { res.error = String(e && e.message || e); res.PASS = false; }

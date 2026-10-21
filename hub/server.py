@@ -16,9 +16,11 @@ word list. Going live, the page is a static shell on the site and this server an
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import re
+import secrets
 import sys
 import tempfile
 import threading
@@ -70,6 +72,55 @@ CAPS = {"join": int(os.environ.get("WHEEL_JOINS_PER_DAY", "50")),
 CAP_TEXT = {"join": "The Wheel has taken all the new members it takes in one day. Join tomorrow.",
             "read": "The Wheel has read all the posts it reads in one day. Paste it tomorrow, or fill the listing in by hand.",
             "submit": "The Wheel has taken all the new listings it takes in one day. Add it tomorrow."}
+
+
+# A few seconds of work in the browser before a join (his "Do A-F", 2026-10-22): cheap for one person, a cost per
+# account for anyone making them in bulk. A script with native hashing pays far less than a phone does, so the daily
+# join cap above stays the real limit; this only makes each spare account cost something.
+JOIN_BITS = int(os.environ.get("WHEEL_JOIN_WORK_BITS", "18"))  # about 1.5 s on a laptop, a few seconds on a phone
+JOIN_WORK_TTL = 600
+_join_work: dict[str, float] = {}
+_join_lock = threading.Lock()
+
+
+def join_work() -> dict:
+    now = time.time()
+    with _join_lock:
+        for k in [k for k, exp in _join_work.items() if exp < now]:
+            del _join_work[k]
+        if len(_join_work) > 5000:  # a flood of asks: drop the oldest
+            for k in sorted(_join_work, key=_join_work.get)[:1000]:
+                del _join_work[k]
+        nonce = secrets.token_hex(16)
+        _join_work[nonce] = now + JOIN_WORK_TTL
+    return {"nonce": nonce, "bits": JOIN_BITS}
+
+
+def zero_bits(digest: bytes) -> int:
+    n = 0
+    for b in digest:
+        if b:
+            return n + 8 - b.bit_length()
+        n += 8
+    return n
+
+
+def work_ok(nonce, commitment, n) -> bool:
+    """The browser found n with sha256("nonce:commitment:n") starting in JOIN_BITS zero bits. Each ask is single use."""
+    with _join_lock:
+        exp = _join_work.pop(str(nonce), None)
+    if not exp or exp < time.time() or not isinstance(n, int) or n < 0:
+        return False
+    return zero_bits(hashlib.sha256(f"{nonce}:{commitment}:{n}".encode()).digest()) >= JOIN_BITS
+
+
+_active = {"at": 0.0, "n": 0}
+
+
+def active_members() -> int:
+    if time.time() - _active["at"] > 60:
+        _active.update(at=time.time(), n=rep.active(db()))
+    return _active["n"]
 
 
 def over_cap(kind: str) -> bool:
@@ -378,6 +429,8 @@ class Handler(BaseHTTPRequestHandler):
                     r["suggestions"] = shown_suggestions(sugs)
                 for_viewer(public(r), bool(mine))
             return self.send(200, {"events": recs, "me": rep.summary(db(), mine) if mine else None})
+        if u.path == "/api/active":  # members in good standing: the cover a check-in can count on
+            return self.send(200, {"active": active_members()})
         if u.path == "/api/me":
             acct = self.account()
             return self.send(200, {"me": rep.summary(db(), acct) if acct else None})
@@ -421,9 +474,21 @@ class Handler(BaseHTTPRequestHandler):
                 return self.fail(400, "That request is too large.")
             raw = self.rfile.read(n)
             sub = u.path[7:]
+            if sub == "/join-work":
+                return self.send(200, join_work())
             if ("POST", sub) in ZK_PUBLIC:
-                if sub == "/join" and over_cap("join"):
-                    return self.fail(429, CAP_TEXT["join"])
+                if sub == "/join":  # the work first, so junk joins cost work and leave the day's cap to real ones
+                    try:
+                        jb = json.loads(raw or b"{}")
+                        w = jb.get("work") or {}
+                        ok = work_ok(w.get("nonce"), str(jb.get("commitment", "")), w.get("n"))
+                    except (ValueError, AttributeError):
+                        ok = False
+                    if not ok:
+                        return self.send(400, {"ok": False, "why": "work"})
+                    raw = json.dumps({"commitment": str(jb.get("commitment", ""))}).encode()
+                    if over_cap("join"):
+                        return self.fail(429, CAP_TEXT["join"])
                 code, data = zk_call("POST", sub, body=raw)
                 return self.send(code, data)
             if sub == "/checkin":  # opening a check-in makes a door code: stewards only

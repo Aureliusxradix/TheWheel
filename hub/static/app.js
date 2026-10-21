@@ -69,11 +69,16 @@ function toast(msg) {
 
 /* ---------- members: the device holds the key; the service sees only commitments and proofs ---------- */
 const W = window.createWheel ? window.createWheel({ api: API + "/api/zk", zk: document.body.dataset.zk || "zk/" }) : null;
+let ACTIVE = null;  // his "Do A-F" (2026-10-22): the cover claim counts members in good standing, beside the total
+async function loadActive() { try { ACTIVE = (await api("/api/active")).active; } catch { ACTIVE = null; } }
 const MIN_CROWD = 3;   // proposal (rep study): no check-in proof offered below 3 members; his to set
 const WARN_CROWD = 10; // proposal: under 10, say plainly that a proof hides little
 
 function crowdLine(size) {
   if (size < MIN_CROWD) return `The Wheel has ${size} member${size === 1 ? "" : "s"}. Check-ins open once ${MIN_CROWD} people have joined, so a check-in can hide who made it.`;
+  const a = ACTIVE;  // members in good standing (Regular and up), from the hub; null until it answers
+  if (a !== null && a < WARN_CROWD) return `You are one of ${size} members; ${a} ${a === 1 ? "has" : "have"} rep from work others confirmed. A check-in proves that a member was there and keeps which one to them. Spare accounts add names and leave the people the same, so count on the ${a} active ${a === 1 ? "member" : "members"} as your cover: among so few, a check-in still narrows it a lot. It gets stronger as people join and take part.`;
+  if (a !== null) return `You are one of ${size} members, ${a} of them active with rep others confirmed. A check-in proves that a member was there and keeps which one to them, among the ${a} active members at least.`;
   if (size < WARN_CROWD) return `You are one of ${size} members. A check-in proves that a member was there and keeps which one to them, though among ${size} people that still narrows it a lot. It gets stronger as people join.`;
   return `You are one of ${size} members. A check-in proves that a member was there and keeps which one to them.`;
 }
@@ -86,7 +91,7 @@ const NO_WASM_TEXT = "This browser has WebAssembly switched off, and the proof t
 async function loadMe() {
   const box = $("#me-body");
   if (!W) { box.innerHTML = `<p class="status err">The member tools failed to load. Reload the page.</p>`; return; }
-  const st = await W.status();
+  const [st] = await Promise.all([W.status(), loadActive()]);
   if (!st.online) { box.innerHTML = `<p class="status err">The member service is down or busy. Try again in a minute.</p>`; return; }
   if (!st.member) {
     // Two doors, side by side, returning first (2026-10-20: a returning member joined as someone new by accident).
@@ -121,7 +126,7 @@ async function loadMe() {
   box.innerHTML = `<div class="card"><h2>You're in</h2>
     <p>${esc(crowdLine(st.size))}</p>${loginNote}${standing}
     <h2 class="sub">Your key</h2>
-    <p class="lede">The key lives on this device alone. Keep a copy somewhere only you can reach, such as your password manager, so a new phone can carry on as you. Anyone holding it is you on The Wheel.</p>
+    <p class="lede">The key lives on this device alone. Keep a copy somewhere only you can reach, such as your password manager, so a new phone can carry on as you. Your key is you: anyone holding it is you on The Wheel. Giving it away gives away you, and whoever hands you a key still holds it.</p>
     <div class="keyrow"><input id="my-key" type="password" readonly value="${esc(W.key() || "")}" aria-label="Your key">
     <button type="button" class="quiet" data-showkey="1">Show</button><button type="button" class="quiet" data-copykey="1">Copy</button></div>
     <h2 class="sub">Where you've checked in</h2>
@@ -141,9 +146,9 @@ async function joinWheel(btn) {
     $("#me-status").textContent = "Joined before? Sign in with your key instead, on the left. Joining again makes a second, separate you.";
     return;
   }
-  $("#me-status").textContent = "Joining…";
+  $("#me-status").textContent = "Joining. This device does a few seconds of work first, which keeps bulk sign-ups slow.";
   const r = await W.join();
-  if (!r.ok) { $("#me-status").textContent = r.why === "storage" ? "This browser refused to keep the key (a private window?). Try a normal window." : "The member service failed to answer. Try again in a moment."; return; }
+  if (!r.ok) { $("#me-status").textContent = r.why === "storage" ? "This browser refused to keep the key (a private window?). Try a normal window." : r.why === "work" ? "The join check failed. Tap Join again." : "The member service failed to answer. Try again in a moment."; return; }
   toast("Joined");
   loadMe();
 }
@@ -176,6 +181,7 @@ async function checkIn(btn) {
   if (!/^[A-Za-z2-9]{6}$/.test(code)) { out.textContent = "The door code is six letters and numbers, shown at the event."; return; }
   const st = await W.status();
   if (!st.member) { out.innerHTML = `Join first, on the <a href="#me">Me</a> page. It takes one tap.`; return; }
+  await loadActive();
   if (st.size < MIN_CROWD) { out.textContent = crowdLine(st.size); return; }
   if (NO_WASM) { out.textContent = NO_WASM_TEXT; return; }
   btn.disabled = true;
