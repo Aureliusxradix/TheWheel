@@ -834,15 +834,15 @@ document.addEventListener("click", (e) => {
 });
 
 async function loadRoadmap() {
-  const [g, ev] = await Promise.all([W ? W.status() : { size: 0 }, api("/api/events?unreviewed=1")]);
-  const n = g.size || 0;
+  const [g, ev] = await Promise.all([W ? W.status() : { size: 0 }, api("/api/events?unreviewed=1"), loadActive()]);
+  const n = g.size || 0, a = ACTIVE ?? 0;
   $("#rm-members").textContent = n;
-  $("#rm-listings").textContent = ev.events.length;
-  $("#rm-checked").textContent = ev.events.filter((e) => e.review?.state === "approved").length;
+  $("#rm-active").textContent = ACTIVE ?? "…";
+  $("#rm-checked").textContent = `${ev.events.filter((e) => e.review?.state === "approved").length} of ${ev.events.length}`;
   $$("#rm-stages li").forEach((li) => {
-    const at = +li.dataset.at;
-    li.classList.toggle("reached", n >= at);
-    $(".stage-state", li).textContent = n >= at ? " Reached." : ` ${at - n} more member${at - n === 1 ? "" : "s"} to go.`;
+    const at = +li.dataset.at, by = li.dataset.by === "active" ? a : n, word = li.dataset.by === "active" ? "active member" : "member";
+    li.classList.toggle("reached", by >= at);
+    $(".stage-state", li).textContent = by >= at ? " Reached." : ` ${at - by} more ${word}${at - by === 1 ? "" : "s"} to go.`;
   });
 }
 
