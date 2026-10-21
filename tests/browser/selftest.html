@@ -33,6 +33,14 @@
     res.submit_a = (await call("/api/submit", { records: [rec] }, la.token)).status;
     res.review_own = (await call("/api/review/1111222233334444", { action: "approve", edits: {} }, la.token)).status;
     res.areas_a = (await call("/api/areas", { name: "x", lat: -36.6, lng: 174.7, reach_km: 5 }, la.token)).status;
+    // supporters (2026-10-22): a profile saved with its audiences, a code from run.sh used once, the public view
+    const code = new URLSearchParams(location.search).get("code");
+    res.profile_saved = (await call("/api/profile", { name: { v: "Tidewalker", a: "all" }, area: { v: "Ponsonby", a: "mem" }, look: { colour: "bloom", glyph: "tide" } }, la.token)).status === 200;
+    const red = await call("/api/support/redeem", { code }, la.token);
+    res.redeem_ok = red.status === 200 && red.json.supporter === true;
+    res.redeem_again = (await call("/api/support/redeem", { code }, la.token)).status;
+    const pub = (await call(`/api/p/${penA}`)).json.profile;
+    res.public_view = pub.name === "Tidewalker" && !("area" in pub) && pub.look.colour === "bloom";
     // sign out, then back in with the same key: the same pen name returns; a bad key changes nothing
     const keyA = W.key();
     res.signout_clears = W.signOut() && W.key() === null && !(await W.status()).member;
@@ -48,7 +56,7 @@
     res.review_b = rv.status; res.certainty_after_b = rv.json.event && rv.json.event.certainty; res.edit_applied_as_new = rv.json.edited;
     res.name_kept = rv.json.event && rv.json.event.name === "Selftest listing";
     res.state_after_b = rv.json.event && rv.json.event.review.state;
-    res.PASS = res.join_nowork && res.signout_clears && res.restore_bad && res.restore_member && res.same_pen_after_signin && res.join && !res.checkin_needs_steward === false && res.login_a && res.me_a && res.me_a.tier === 0 && res.submit_nologin === 401 && res.submit_a === 200
+    res.PASS = res.profile_saved && res.redeem_ok && res.redeem_again === 400 && res.public_view && res.join_nowork && res.signout_clears && res.restore_bad && res.restore_member && res.same_pen_after_signin && res.join && !res.checkin_needs_steward === false && res.login_a && res.me_a && res.me_a.tier === 0 && res.submit_nologin === 401 && res.submit_a === 200
       && res.review_own === 403 && res.areas_a === 403 && res.login_b && res.pens_differ && res.review_b === 200
       && res.certainty_after_b && res.certainty_after_b.for === 0.2 && res.edit_applied_as_new === false && res.name_kept && res.state_after_b === "pending";
   } catch (e) { res.error = String(e && e.message || e); res.PASS = false; }

@@ -8,6 +8,10 @@
     python3 hub/wheelctl.py reject <listing-id>        take a listing out for good (a held one, say)
     python3 hub/wheelctl.py flyer <listing-id> <image> show this flyer on the listing (cleaned first; look at it first:
                                                        its words go out with it, and only a person checks them here)
+    python3 hub/wheelctl.py codes <months> <n> [note]  make supporter codes (months 1, 6 or 12; note: cash, paypal,
+                                                       gift...), printed once: the store keeps only their fingerprints
+    python3 hub/wheelctl.py codes count                codes made and used, by months and note
+    python3 hub/wheelctl.py supporters                 how many accounts hold supporter months today
 
 A pen name is shown on the Me page. He is the steward until two stewards exist (rep study).
 """
@@ -16,7 +20,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from hub import flyer, gate, rep, store  # noqa: E402
+from hub import flyer, gate, rep, store, support  # noqa: E402
 from hub.server import FLYERS, public  # noqa: E402
 
 db = store.connect()
@@ -37,6 +41,14 @@ elif a[:1] == ["tier"] and len(a) == 3 and a[2] in ("none", "regular", "reviewer
         sys.exit(f"no account {a[1]}")
     db.execute("UPDATE accounts SET granted_tier=? WHERE account=?", ({"none": None, "regular": 1, "reviewer": 2}[a[2]], a[1])); db.commit()
     print(f"{a[1]}: {a[2]} given by hand, tier now {rep.TIER_NAME[rep.tier(db, a[1])]}")
+elif a[:1] == ["codes"] and len(a) in (3, 4) and a[1].isdigit() and a[2].isdigit():
+    for c in support.make_codes(db, int(a[1]), int(a[2]), a[3] if len(a) == 4 else ""):
+        print(c)
+elif a == ["codes", "count"]:
+    for r in db.execute("SELECT months, COALESCE(note,'') note, COUNT(*) made, COUNT(used_day) used FROM codes GROUP BY 1, 2"):
+        print(f"{r['months']:>2} months  {r['note'] or '-':<8} made {r['made']:>4}  used {r['used']:>4}")
+elif a == ["supporters"]:
+    print(f"{support.count(db)} accounts hold supporter months today")
 elif a == ["held"]:
     # a held listing is never deleted: it waits here for a steward, who rejects it (below) or lets it stay held
     rx, n = gate.load(), 0

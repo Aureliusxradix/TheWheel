@@ -125,6 +125,7 @@ async function loadMe() {
       <p class="hint">${me.next ? `Next: ${esc(me.next)}. ` : ""}Listings added today: ${me.deposits_today} of ${me.deposit_limit}. Rep comes from listings that pass review and reviews that agree with how a listing settled. <a href="#rep">How rep works</a>.</p>` : "";
   box.innerHTML = `<div class="card"><h2>You're in</h2>
     <p>${esc(crowdLine(st.size))}</p>${loginNote}${standing}
+    <div id="me-profile"></div>
     <h2 class="sub">Your key</h2>
     <p class="lede">The key lives on this device alone. Keep a copy somewhere only you can reach, such as your password manager, so a new phone can carry on as you. Your key is you: anyone holding it is you on The Wheel. Giving it away gives away you, and whoever hands you a key still holds it.</p>
     <div class="keyrow"><input id="my-key" type="password" readonly value="${esc(W.key() || "")}" aria-label="Your key">
@@ -137,6 +138,7 @@ async function loadMe() {
     <div class="actions"><button type="button" class="quiet" data-copykey="1">Copy my key</button>
     <button type="button" class="danger" data-signout="1">Sign out of this browser</button></div>
     <p class="status" id="signout-status" role="status"></p></div>`;
+  if (me) loadProfileEditor(me).catch((e) => { const b = $("#me-profile"); if (b) b.innerHTML = `<p class="status err">${esc(e.message)}</p>`; });
 }
 
 async function joinWheel(btn) {
@@ -861,6 +863,8 @@ function route() {
   if (view === "review") loadReview().catch((e) => toast(e.message));
   if (view === "areas") { loadAreas().catch((e) => toast(e.message)); loadKinds(); }
   if (view === "roadmap") loadRoadmap().catch((e) => toast(e.message));
+  if (view === "p") loadProfile(location.hash.slice(1).split("/")[1]).catch((e) => ($("#profile-body").innerHTML = `<p class="status err">${esc(e.message)}</p>`));
+  if (view === "support") loadSupport().catch((e) => ($("#support-buy").innerHTML = `<p class="status err">${esc(e.message)}</p>`));
   if (view === "me") loadMe().catch((e) => ($("#me-body").innerHTML = `<p class="status err">${esc(e.message)}</p>`));
 }
 
@@ -930,6 +934,223 @@ const drop = $("#drop");
 drop.addEventListener("drop", (e) => showFlyer(e.dataTransfer.files[0]));
 drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("#add-file").click(); } });
 $("#area-form").addEventListener("submit", saveArea);
+
+/* ---------- supporters and profiles (his calls 2026-10-22): looks for supporter months, paid as codes; a profile in
+   the Ledger layout where every item carries its audience and a note on what it gives away ---------- */
+let SUP = null, profilePen = null;  // /api/support: names, prices, looks, which ways to pay are open
+async function supportConfig() { if (!SUP) SUP = await api("/api/support"); return SUP; }
+
+function glyphSvg(seed, style = "ring", hex = "", size = 64) {
+  let h = 0; for (const c of seed) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const rnd = () => ((h = (h * 1664525 + 1013904223) >>> 0) / 4294967296);
+  const col = hex || "currentColor", f = (n) => n.toFixed(1);
+  let marks = "";
+  for (let i = 0; i < 30; i++) {
+    const a = (i / 30) * Math.PI * 2, r1 = 19 + rnd() * 5, r2 = 28 + rnd() * 6;
+    if (style === "bloom") marks += `<ellipse cx="${f(36 + Math.cos(a) * 26)}" cy="${f(36 + Math.sin(a) * 26)}" rx="${f(2 + rnd() * 2)}" ry="1.2" transform="rotate(${f(a * 180 / Math.PI)} ${f(36 + Math.cos(a) * 26)} ${f(36 + Math.sin(a) * 26)})"/>`;
+    else if (style === "tide") marks += i % 2 ? "" : `<path d="M${f(36 + Math.cos(a) * r1)} ${f(36 + Math.sin(a) * r1)} Q${f(36 + Math.cos(a + .2) * (r1 + 5))} ${f(36 + Math.sin(a + .2) * (r1 + 5))} ${f(36 + Math.cos(a + .1) * r2)} ${f(36 + Math.sin(a + .1) * r2)}"/>`;
+    else marks += `<line x1="${f(36 + Math.cos(a) * r1)}" y1="${f(36 + Math.sin(a) * r1)}" x2="${f(36 + Math.cos(a + .13) * r2)}" y2="${f(36 + Math.sin(a + .13) * r2)}"/>`;
+  }
+  const k = 3 + (h % 4); let poly = "";
+  for (let i = 0; i < k; i++) { const a = (i / k) * Math.PI * 2 - Math.PI / 2; poly += `${f(36 + Math.cos(a) * 10)},${f(36 + Math.sin(a) * 10)} `; }
+  const body = `<circle cx="36" cy="36" r="13" stroke-width="1.4"/><polygon points="${poly}" stroke-width="1.4"/>${marks}`;
+  const haze = style === "haze" ? `<g opacity=".35" transform="translate(1.6 1.2)">${body}</g>` : "";
+  return `<svg class="glyph${style === "turning" ? " turning" : ""}" width="${size}" height="${size}" viewBox="0 0 72 72" aria-hidden="true" fill="${style === "bloom" ? col : "none"}" stroke="${col}" stroke-width="1.6" stroke-linecap="round">${haze}${style === "bloom" ? body.replace(/<(circle|polygon)/g, '<$1 fill="none"') : body}</svg>`;
+}
+
+const AUD = { all: "Everyone", mem: "Members", me: "Only me" };
+const PROFILE_NOTES = {  // tone-checked (plain), from the pathway page
+  name: "Others see this name on your profile. Pick one that is new here: a name you use elsewhere joins this profile to those accounts, and search engines keep what they find.",
+  about: "Your words, your details. A job, a suburb, a child's age: each is small alone, and together they describe a person. Your way of writing is recognisable too.",
+  kinds: "Shows what draws you. Common kinds blend in; two or three rare ones together can point to one person.",
+  area: "Shows where you go. With the kinds you follow, an area can narrow you to a few people in a small scene.",
+  status: "A small sign beside your pen name. Change it as often as you like.",
+  mark: "Says you hold a supporter code. Codes are gifted too, so the mark shows a code, and who paid for it stays open. Others see it once 15 members hold one.",
+  look: "Looks only. A rare look makes you a little easier to spot while few members use it.",
+};
+const dot = (a) => `<span class="dot ${a}" aria-hidden="true"></span>`;
+const audSelect = (k, a) => `<span class="aud-pick">${dot(a || "me")}<select data-aud="${k}" aria-label="Who sees this">${Object.entries(AUD).map(([v, t]) => `<option value="${v}"${(a || "me") === v ? " selected" : ""}>${t}</option>`).join("")}</select></span>`;
+const longDate = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "long", year: "numeric" });
+
+async function loadProfileEditor(me) {
+  const box = $("#me-profile");
+  if (!box || !me) return;
+  profilePen = me.account;
+  const [cfg, mine] = await Promise.all([supportConfig(), api("/api/profile")]);
+  const p = mine.profile || {}, sup = mine.supporter, look = p.look || { colour: "ink", glyph: "ring" };
+  const v = (k) => p[k]?.v ?? "", a = (k) => p[k]?.a || "me";
+  const terms = $("#me-body .terms");  // the glyph joins the standing row, in the member's own look
+  if (terms && !$(".glyphcell", terms)) {
+    terms.classList.add("with-glyph");
+    const hex = sup ? cfg.colours[look.colour]?.hex || "" : "";
+    terms.insertAdjacentHTML("afterbegin", `<div class="term glyphcell" style="color:${hex || "inherit"}">${glyphSvg(me.account, sup ? look.glyph : "ring", hex, 44)}</div>`);
+  }
+  const lock = (on) => (on && !sup ? ` disabled title="A Supporter look"` : "");
+  const row = (k, label, input) => `<div class="pl-row"><span class="k">${label}</span><div class="pl-in">${input}<p class="hint">${PROFILE_NOTES[k]}</p></div>${audSelect(k, a(k))}</div>`;
+  box.innerHTML = `<h2 class="sub">Your profile</h2>
+    <p class="lede">Show as much or as little as you like. Each item has its own audience, and every item starts with only you.</p>
+    <div class="pl">
+      ${row("name", "Name", `<input id="pf-name" maxlength="40" value="${esc(v("name"))}" autocomplete="off">`)}
+      ${row("about", "About", `<textarea id="pf-about" maxlength="280" rows="2">${esc(v("about"))}</textarea>`)}
+      ${row("kinds", "Kinds", `<input id="pf-kinds" value="${esc((v("kinds") || []).join(", "))}" placeholder="sound bath, fire and flow" autocomplete="off">`)}
+      ${row("area", "Area", `<input id="pf-area" maxlength="40" value="${esc(v("area"))}" autocomplete="off">`)}
+      ${row("status", "Status", `<select id="pf-status"${lock(true)}><option value="">None</option>${Object.entries(cfg.signs).map(([k, s]) => `<option value="${k}"${v("status") === k ? " selected" : ""}>${s} ${k}</option>`).join("")}</select>${sup ? "" : ` <span class="hint">A Supporter look.</span>`}`)}
+      ${row("mark", "Supporter mark", `<label class="tick"><input type="checkbox" id="pf-mark"${v("mark") ? " checked" : ""}${lock(true)}> Show ◇ supporter</label>${sup ? "" : ` <span class="hint">A Supporter look.</span>`}`)}
+    </div>
+    <h3 class="sub">Looks</h3>
+    <p class="hint">${PROFILE_NOTES.look}</p>
+    <div class="swatches" role="radiogroup" aria-label="Colour">${Object.entries(cfg.colours).map(([k, c]) => `<label class="swatch" title="${k}${c.supporter ? ", a Supporter look" : ""}"><input type="radio" name="pf-colour" value="${k}"${look.colour === k ? " checked" : ""}${c.supporter && !sup ? " disabled" : ""}><span style="--sw:${c.hex || "currentColor"}"></span>${k}</label>`).join("")}</div>
+    <div class="glyphs" role="radiogroup" aria-label="Glyph style">${Object.entries(cfg.glyphs).map(([k, locked]) => `<label class="gl"><input type="radio" name="pf-glyph" value="${k}"${look.glyph === k ? " checked" : ""}${locked && !sup ? " disabled" : ""}>${glyphSvg(me.account, k, cfg.colours[look.colour]?.hex, 44)}<span>${k}${locked ? " ◇" : ""}</span></label>`).join("")}</div>
+    <p class="hint">◇ marks a Supporter look. Choices you make while a Supporter stay saved when the months end and come back with the next code.</p>
+    <p class="band">${["all", "mem"].map((w) => `To ${w === "all" ? "everyone" : "members"}, you look like <b>${mine.lookalike[w]}</b> members.`).join(" ")}</p>
+    <div class="actions"><button type="button" class="primary" data-saveprofile="1">Save profile</button>
+      <a class="quiet" href="#p/${me.account}">See your profile as others do</a></div>
+    <p class="status" id="pf-status-line" role="status"></p>
+    <h2 class="sub">Supporter</h2>
+    ${sup ? `<p>Supporter until <b>${longDate(mine.until)}</b>. Thank you: it keeps the machine on and the time free.</p>`
+      : `<p class="lede">Supporter months add looks to your profile and keep The Wheel running. <a href="#support">Become a Supporter</a>.</p>`}
+    <label for="pf-code">Have a code?</label>
+    <div class="keyrow"><input id="pf-code" autocomplete="off" spellcheck="false" placeholder="WHEEL-XXXX-XXXX-XXXX"><button type="button" class="quiet" data-redeem="1">Use code</button></div>
+    <p class="status" id="pf-code-status" role="status"></p>`;
+}
+
+function readProfile() {
+  const aud = (k) => $(`[data-aud="${k}"]`).value;
+  return {
+    name: { v: $("#pf-name").value, a: aud("name") }, about: { v: $("#pf-about").value, a: aud("about") },
+    kinds: { v: $("#pf-kinds").value.split(",").map((s) => s.trim()).filter(Boolean), a: aud("kinds") },
+    area: { v: $("#pf-area").value, a: aud("area") },
+    status: { v: $("#pf-status").value, a: aud("status") }, mark: { v: $("#pf-mark").checked, a: aud("mark") },
+    look: { colour: $('input[name="pf-colour"]:checked')?.value || "ink", glyph: $('input[name="pf-glyph"]:checked')?.value || "ring" },
+  };
+}
+
+async function saveProfile(btn) {
+  const out = $("#pf-status-line");
+  btn.disabled = true;
+  try { await api("/api/profile", readProfile()); toast("Profile saved"); loadMe(); }
+  catch (e) { out.textContent = e.message; out.classList.add("err"); }
+  btn.disabled = false;
+}
+
+async function redeemCode(code, out) {
+  try {
+    const r = await api("/api/support/redeem", { code });
+    toast("Supporter months added");
+    if (out) out.textContent = `Supporter until ${longDate(r.added_until)}.`;
+    SUP = null; loadMe();
+  } catch (e) { if (out) { out.textContent = e.message; out.classList.add("err"); } }
+}
+
+async function loadProfile(pen) {
+  const box = $("#profile-body");
+  box.innerHTML = `<p class="status">Loading…</p>`;
+  if (!/^[0-9a-f]{16}$/.test(pen || "")) { box.innerHTML = `<p class="status err">A pen name is 16 letters and numbers, 0 to 9 and a to f.</p>`; return; }
+  const [cfg, r] = await Promise.all([supportConfig(), api(`/api/p/${pen}`)]);
+  const p = r.profile, hex = cfg.colours[p.look.colour]?.hex || "";
+  const rows = [["Name", p.name], ["Status", p.status && `${cfg.signs[p.status]} ${p.status}`], ["About", p.about],
+    ["Kinds", p.kinds && p.kinds.join(" · ")], ["Area", p.area], ["Supporter", p.mark && "◇ supporter"]].filter(([, v]) => v);
+  box.innerHTML = `<div class="card">
+    <div class="terms pl-head"><div class="term glyphcell" style="color:${hex || "inherit"}">${glyphSvg(pen, p.look.glyph, hex, 56)}</div>
+      <div class="term key"><span class="k">Pen name</span><span class="v pen">${esc(pen)}</span></div>
+      <div class="term"><span class="k">Tier</span><span class="v">${esc(r.tier_name)}</span></div></div>
+    ${rows.length ? `<div class="pl">${rows.map(([k, v]) => `<div class="pl-row view"><span class="k">${k}</span><span>${esc(v)}</span></div>`).join("")}</div>`
+      : `<p class="lede">This member shows only a pen name${r.viewer === "all" ? " to everyone" : ""}.</p>`}
+    <p class="hint">${r.viewer === "me" ? "This is your profile as you see it, with every item. Others see only what you've set for them; sign out or open it in a private window to see it as everyone does." : r.viewer === "mem" ? "You see what this member shows to members and to everyone." : "You see what this member shows to everyone. Members may see more."}</p></div>`;
+}
+
+async function loadSupport() {
+  const box = $("#support-buy");
+  if (!box) return;
+  const cfg = await supportConfig();
+  const saved = (() => { try { return localStorage.getItem("wheel-order"); } catch { return null; } })();
+  $("#supporters-count").textContent = cfg.supporters ? `${cfg.supporters} ${cfg.supporters === 1 ? "member holds" : "members hold"} supporter months today. Thank you.` : "";
+  box.innerHTML = `<div class="buy">
+    <div><span class="k">Months</span><div class="ranges" role="radiogroup" aria-label="Months">${cfg.months.map((m, i) => `<button type="button" data-months="${m}" class="${i === 0 ? "on" : ""}" aria-pressed="${i === 0}">${m} ${m === 1 ? "month" : "months"}</button>`).join("")}</div></div>
+    <div><label for="buy-nzd">NZ$ a month, from ${cfg.min_nzd}</label><input id="buy-nzd" type="number" inputmode="decimal" min="${cfg.min_nzd}" step="1" value="${cfg.suggest_nzd}"></div>
+    <p class="buy-total" id="buy-total"></p></div>
+    <div class="give">
+      <div class="give-way"><h3>Monero</h3>
+        ${cfg.monero ? `<p class="hint">Nobody learns who paid. The Wheel sees that the amount arrived, and your code shows here after 10 blocks, about 20 minutes.</p>
+        <button type="button" class="primary" data-xmrorder="1">Pay with Monero</button>` : `<p class="hint">Paused while the payment watcher is offline. Try again later, or pay another way.</p>`}
+        <div id="xmr-order"></div></div>
+      ${cfg.paypal ? `<div class="give-way"><h3>PayPal</h3>
+        <p class="hint">Put the months in PayPal's note. We email your code to the address PayPal gives us, within a day. PayPal and our PayPal account then hold your name; your Wheel profile holds only the code.</p>
+        <p><a class="primary" href="${esc(cfg.paypal)}" target="_blank" rel="noopener">Pay with PayPal</a></p></div>` : ""}
+      <div class="give-way"><h3>Cash</h3>
+        <p class="hint">At an event, a steward or organiser with code cards takes cash and hands you a code. The person handing it over is the only one who knows.</p></div>
+    </div>`;
+  updateTotal();
+  if (saved) watchOrder(saved);
+}
+
+function updateTotal() {
+  const m = +($("[data-months].on")?.dataset.months || 1), n = Number($("#buy-nzd")?.value || 0);
+  const el = $("#buy-total"); if (!el) return;
+  el.textContent = n >= (SUP?.min_nzd || 2) ? `NZ$${(m * n).toFixed(2)} for ${m} ${m === 1 ? "month" : "months"}.` : `From NZ$${SUP?.min_nzd || 2} a month.`;
+}
+
+async function startOrder(btn) {
+  const out = $("#xmr-order");
+  btn.disabled = true;
+  try {
+    const r = await api("/api/support/order", { months: +($("[data-months].on")?.dataset.months || 1), nzd: Number($("#buy-nzd").value) });
+    try { localStorage.setItem("wheel-order", r.token); } catch {}
+    showOrder(r, { state: "waiting", confirmations: 0, need: r.confirmations });
+    watchOrder(r.token, r);
+  } catch (e) { out.innerHTML = `<p class="status err">${esc(e.message)}</p>`; }
+  btn.disabled = false;
+}
+
+function showOrder(o, st) {
+  const out = $("#xmr-order"); if (!out) return;
+  if (st.code) {
+    out.innerHTML = `<div class="warn"><p><b>Paid. Your code:</b></p>
+      <div class="keyrow"><input id="got-code" readonly value="${esc(st.code)}" spellcheck="false"><button type="button" class="quiet" data-copycode="1">Copy</button></div>
+      <p class="hint">This code shows once. Copy it now, then use it on <a href="#me">Me</a> or give it to someone.</p>
+      ${W && W.session() ? `<button type="button" class="primary" data-usecode="1">Use it on my profile</button>` : ""}</div>`;
+    return;
+  }
+  out.innerHTML = `<div class="xmr-pay">
+    <label for="pay-addr">Send to</label><div class="keyrow"><input id="pay-addr" readonly value="${esc(o.address)}" spellcheck="false"><button type="button" class="quiet" data-copyfield="pay-addr">Copy</button></div>
+    <label for="pay-amt">Exactly this amount of XMR</label><div class="keyrow"><input id="pay-amt" readonly value="${esc(o.amount)}" spellcheck="false"><button type="button" class="quiet" data-copyfield="pay-amt">Copy</button></div>
+    <p class="hint">Send the amount to the last digit: those digits tell your payment apart from everyone else's. The amount holds for an hour.</p>
+    <p class="status" role="status">${st.state === "seen" ? `Payment seen: ${st.confirmations} of ${st.need} blocks.` : "Waiting for your payment. This page checks every 30 seconds; you can close it and come back on this device."}</p></div>`;
+}
+
+async function watchOrder(token, first) {
+  clearTimeout(watchOrder.t);
+  let o = first;
+  try {
+    const st = await api(`/api/support/order/${token}`);
+    o = o || st;
+    showOrder(o, st);
+    if (st.code) { try { localStorage.removeItem("wheel-order"); } catch {} return; }
+  } catch (e) { try { localStorage.removeItem("wheel-order"); } catch {} $("#xmr-order").innerHTML = `<p class="status">${esc(e.message)}</p>`; return; }
+  watchOrder.t = setTimeout(() => { if (location.hash.startsWith("#support")) watchOrder(token, o); }, 30000);
+}
+
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("button, a");
+  if (!t) return;
+  if (t.dataset.saveprofile) saveProfile(t);
+  if (t.dataset.redeem) redeemCode($("#pf-code").value, $("#pf-code-status"));
+  if (t.dataset.months) { $$("[data-months]").forEach((b) => { b.classList.toggle("on", b === t); b.setAttribute("aria-pressed", String(b === t)); }); updateTotal(); }
+  if (t.dataset.xmrorder) startOrder(t);
+  if (t.dataset.copyfield) { const f = $("#" + t.dataset.copyfield); navigator.clipboard?.writeText(f.value).then(() => toast("Copied")).catch(() => f.select()); }
+  if (t.dataset.copycode) { const f = $("#got-code"); navigator.clipboard?.writeText(f.value).then(() => toast("Code copied")).catch(() => f.select()); }
+  if (t.dataset.usecode) redeemCode($("#got-code").value, null).then(() => { location.hash = "#me"; });
+});
+document.addEventListener("input", (e) => { if (e.target.id === "buy-nzd") updateTotal(); });
+document.addEventListener("change", (e) => {
+  if (e.target.dataset?.aud) { const d = $(".dot", e.target.parentElement); d.className = `dot ${e.target.value}`; }
+  if (e.target.name === "pf-colour" || e.target.name === "pf-glyph") {  // redraw the glyph previews in the new colour
+    const hex = SUP?.colours[$('input[name="pf-colour"]:checked')?.value]?.hex || "";
+    $$(".glyphs .gl").forEach((l) => { const k = $("input", l).value; $("svg", l).outerHTML = glyphSvg(profilePen || "x", k, hex, 44); });
+  }
+});
+
+// boot last, so every declaration above exists before the first view loads
 window.addEventListener("hashchange", route);
 
 route();

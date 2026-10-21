@@ -333,3 +333,43 @@ label.tick { display: flex; gap: .6em; align-items: flex-start; margin: .6rem 0;
 label.tick input { margin-top: .3em; flex: none; }
 blockquote.chat-src { white-space: pre-wrap; margin: .4rem 0 .6rem; padding: .5rem .8rem; border-left: 2px solid var(--soft-rule); background: rgba(0,0,0,.06); font-size: .92rem; max-height: 16rem; overflow: auto; }
 label.tick input[type="checkbox"] { width: auto; min-height: 0; height: auto; padding: 0; }
+
+/* ── profiles in the Ledger layout and supporter looks (2026-10-22) ── */
+.pl { display: grid; margin-top: .6rem; border-top: 1px solid var(--soft-rule); }
+.pl-row { display: grid; grid-template-columns: 7rem minmax(0, 1fr) auto; gap: .3rem .9rem; align-items: start; padding: .7rem 0; border-bottom: 1px solid var(--soft-rule); }
+[data-look="day"] .pl-row { border-bottom: 2px solid #17191A; }
+.pl-row .k, .buy .k { font-size: .7rem; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); padding-top: .55rem; }
+.pl-row.view { grid-template-columns: 7rem minmax(0, 1fr); align-items: baseline; }
+.pl-row.view .k { padding-top: 0; }
+.pl-in { min-width: 0; display: grid; gap: .3rem; }
+.pl-in .hint { margin: 0; }
+.aud-pick { display: inline-flex; align-items: center; gap: .4rem; padding-top: .35rem; }
+.aud-pick select { width: auto; font-size: .8rem; padding: .35rem .4rem; }
+@media (max-width: 640px) { .pl-row { grid-template-columns: minmax(0, 1fr); } .pl-row .k { padding-top: 0; } .aud-pick { padding-top: 0; } }
+.dot { display: inline-block; width: .72em; height: .72em; border-radius: 50%; border: 1.5px solid currentColor; flex: none; }
+.dot.all { background: currentColor; }
+.dot.mem { background: linear-gradient(90deg, currentColor 50%, transparent 50%); }
+.swatches, .glyphs { display: flex; flex-wrap: wrap; gap: .5rem .8rem; margin: .6rem 0; }
+.swatch, .gl { display: inline-flex; align-items: center; gap: .35rem; font-size: .8rem; cursor: pointer; }
+.swatch input, .gl input { width: auto; }
+.swatch span { display: inline-block; width: 1.1rem; height: 1.1rem; border-radius: 50%; background: var(--sw); border: 1px solid var(--soft-rule); }
+.gl { flex-direction: column; gap: .1rem; }
+.swatch:has(input:disabled), .gl:has(input:disabled) { opacity: .55; cursor: not-allowed; }
+.band { font-size: .86rem; color: var(--dim); }
+.band b { color: var(--ink); }
+.pl-head { grid-template-columns: 76px repeat(2, minmax(0, 1fr)); }
+.glyphcell { display: grid; place-items: center; }
+.pen { font-size: .9rem; word-break: break-all; }
+svg.glyph.turning { animation: wheel-turn 60s linear infinite; }
+@keyframes wheel-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { svg.glyph.turning { animation: none; } }
+.buy { display: grid; gap: .8rem; max-width: 36rem; margin: 1rem 0; }
+.buy input { max-width: 10rem; }
+.buy-total { font-weight: 700; margin: 0; }
+.xmr-pay { display: grid; gap: .35rem; margin-top: .8rem; }
+.xmr-pay .keyrow input, #got-code { font-size: .74rem; }
+.term .v { min-width: 0; overflow-wrap: break-word; }
+.term.key .v, .term .v.pen { overflow-wrap: anywhere; }
+.terms.with-glyph { grid-template-columns: 48px minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, .7fr); }
+.terms.with-glyph .v { font-size: 1.05rem; }
+.terms.with-glyph .glyphcell { padding: .3rem; }

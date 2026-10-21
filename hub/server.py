@@ -35,7 +35,7 @@ from urllib.parse import parse_qs, urlsplit
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from hub import chats, flyer, gate, kinds, repeats, rep, store  # noqa: E402
+from hub import chats, flyer, gate, kinds, repeats, rep, store, support  # noqa: E402
 from reader import core  # noqa: E402
 
 STATIC = ROOT / "hub" / "static"
@@ -68,10 +68,12 @@ GATE = None  # set in main(): the identity gate's compiled word list
 # list past the 1,024 the proving files cover (depth 10), which would lock every member out.
 CAPS = {"join": int(os.environ.get("WHEEL_JOINS_PER_DAY", "50")),
         "read": int(os.environ.get("WHEEL_READS_PER_DAY", "60")),
-        "submit": int(os.environ.get("WHEEL_SUBMITS_PER_DAY", "100"))}
+        "submit": int(os.environ.get("WHEEL_SUBMITS_PER_DAY", "100")),
+        "order": int(os.environ.get("WHEEL_ORDERS_PER_DAY", "100"))}
 CAP_TEXT = {"join": "The Wheel has taken all the new members it takes in one day. Join tomorrow.",
             "read": "The Wheel has read all the posts it reads in one day. Paste it tomorrow, or fill the listing in by hand.",
-            "submit": "The Wheel has taken all the new listings it takes in one day. Add it tomorrow."}
+            "submit": "The Wheel has taken all the new listings it takes in one day. Add it tomorrow.",
+            "order": "The Wheel has opened all the Monero orders it opens in one day. Try tomorrow, or pay another way."}
 
 
 # A few seconds of work in the browser before a join (his "Do A-F", 2026-10-22): cheap for one person, a cost per
@@ -112,6 +114,40 @@ def work_ok(nonce, commitment, n) -> bool:
     if not exp or exp < time.time() or not isinstance(n, int) or n < 0:
         return False
     return zero_bits(hashlib.sha256(f"{nonce}:{commitment}:{n}".encode()).digest()) >= JOIN_BITS
+
+
+# Supporters (his calls 2026-10-22): a watcher beside the Monero node reads its own view-only wallet and reports
+# payments here. Its token is a file (a podman secret in production); without it the Monero way stays hidden.
+WATCH_FILE = Path(os.environ.get("WHEEL_WATCH_TOKEN_FILE") or DATA / "watch.token")
+PAYPAL_LINK = os.environ.get("WHEEL_PAYPAL_LINK", "")
+_watch_seen = [0.0]
+
+
+def watch_token() -> str:
+    try:
+        return WATCH_FILE.read_text().strip()
+    except OSError:
+        return ""
+
+
+def monero_open() -> bool:
+    """Orders open only while the watcher has asked for them in the last half hour: a payment then gets seen."""
+    return bool(watch_token()) and time.time() - _watch_seen[0] < 1800
+
+
+def support_config() -> dict:
+    return {"name": support.NAME, "min_nzd": support.MIN_NZD, "suggest_nzd": support.SUGGEST_NZD,
+            "months": list(support.MONTHS), "paypal": PAYPAL_LINK, "monero": monero_open(),
+            "supporters": support.count(db()), "floor": support.FLOOR,
+            "colours": {k: {"hex": v[0], "supporter": v[1]} for k, v in support.COLOURS.items()},
+            "glyphs": support.GLYPHS, "signs": support.SIGNS}
+
+
+def my_profile(acct: str) -> dict:
+    d = db()
+    p = support.get_profile(d, acct)
+    return {"profile": p, "until": support.until(d, acct), "supporter": support.active(d, acct),
+            "lookalike": support.lookalike(d, acct), "floor_ok": support.count(d) >= support.FLOOR}
 
 
 _active = {"at": 0.0, "n": 0}
@@ -378,6 +414,10 @@ class Handler(BaseHTTPRequestHandler):
             store.ensure_account(db(), acct)
         return acct
 
+    def watcher(self) -> bool:
+        tok, given = watch_token(), self.headers.get("X-Wheel-Watch") or ""
+        return bool(tok) and secrets.compare_digest(tok, given)
+
     def need(self, min_tier: int = 0) -> tuple[str | None, int]:
         acct = self.account()
         if acct is None:
@@ -429,6 +469,33 @@ class Handler(BaseHTTPRequestHandler):
                     r["suggestions"] = shown_suggestions(sugs)
                 for_viewer(public(r), bool(mine))
             return self.send(200, {"events": recs, "me": rep.summary(db(), mine) if mine else None})
+        if u.path == "/api/support":
+            return self.send(200, support_config())
+        if u.path == "/api/profile":
+            acct, t = self.need(0)
+            if acct is None:
+                return
+            return self.send(200, my_profile(acct))
+        m = re.fullmatch(r"/api/p/([0-9a-f]{16})", u.path)
+        if m:
+            pen, d = m.group(1), db()
+            if not d.execute("SELECT 1 FROM accounts WHERE account=?", (pen,)).fetchone():
+                return self.fail(404, "No member goes by that pen name.")
+            me = self.account() if self.headers.get("Authorization") else None
+            viewer = "me" if me == pen else "mem" if me else "all"
+            sup = support.active(d, pen)
+            return self.send(200, {"pen": pen, "tier_name": rep.TIER_NAME[rep.tier(d, pen)], "viewer": viewer,
+                                   "profile": support.shown(support.get_profile(d, pen), viewer, sup,
+                                                            support.count(d) >= support.FLOOR)})
+        m = re.fullmatch(r"/api/support/order/([A-Za-z0-9_-]{20,64})", u.path)
+        if m:
+            st = support.order_status(db(), m.group(1))
+            return self.send(200, st) if st else self.fail(404, "That order has ended: an unpaid order lasts a day.")
+        if u.path == "/api/support/watch":
+            if not self.watcher():
+                return self.fail(404, "That address is empty.")
+            _watch_seen[0] = time.time()
+            return self.send(200, {"orders": support.watch_list(db()), "address": support.XMR_ADDRESS})
         if u.path == "/api/active":  # members in good standing: the cover a check-in can count on
             return self.send(200, {"active": active_members()})
         if u.path == "/api/me":
@@ -500,6 +567,39 @@ class Handler(BaseHTTPRequestHandler):
             return self.fail(404, "That address is empty.")
         try:
             b = self.body()
+            if u.path == "/api/profile":
+                acct, t = self.need(0)
+                if acct is None:
+                    return
+                support.save_profile(db(), acct, b)
+                return self.send(200, my_profile(acct))
+            if u.path == "/api/support/redeem":
+                acct, t = self.need(0)
+                if acct is None:
+                    return
+                if store.count_deposit(db(), "redeem:" + acct, datetime.now(TZ).date().isoformat()) > 10:
+                    return self.fail(429, "Ten tries a day. Check the code and try tomorrow.")
+                new = support.redeem(db(), acct, str(b.get("code", ""))[:40])
+                if not new:
+                    return self.fail(400, "That code is unknown or already used. Check it letter by letter.")
+                return self.send(200, {**my_profile(acct), "added_until": new})
+            if u.path == "/api/support/order":
+                if not monero_open():
+                    return self.fail(503, "Monero orders are paused while the payment watcher is offline. Try again later, or pay another way.")
+                rate = support.xmr_nzd()
+                if not rate:
+                    return self.fail(503, "The Monero price failed to load. Try again in a few minutes.")
+                if over_cap("order"):
+                    return self.fail(429, CAP_TEXT["order"])
+                months, nzd = b.get("months"), b.get("nzd")
+                return self.send(200, support.open_order(db(), int(months) if str(months).isdigit() else 0,
+                                                         float(nzd) if isinstance(nzd, (int, float)) else 0, rate))
+            if u.path == "/api/support/watch":
+                if not self.watcher():
+                    return self.fail(404, "That address is empty.")
+                _watch_seen[0] = time.time()
+                st = support.watch_report(db(), str(b.get("id", "")), int(b.get("confirmations") or 0))
+                return self.send(200, {"state": st})
             if u.path == "/api/read":
                 acct, t = self.need(0)
                 if acct is None:

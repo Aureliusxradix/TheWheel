@@ -46,6 +46,11 @@ def connect() -> sqlite3.Connection:
       PRIMARY KEY (account, day));
     CREATE TABLE IF NOT EXISTS tag_merges (alias TEXT PRIMARY KEY, canonical TEXT NOT NULL, day TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS tag_kept (a TEXT NOT NULL, b TEXT NOT NULL, day TEXT NOT NULL, PRIMARY KEY (a, b));
+    CREATE TABLE IF NOT EXISTS codes (hash TEXT PRIMARY KEY, months INTEGER NOT NULL, made_day TEXT NOT NULL,
+      used_day TEXT, note TEXT);
+    CREATE TABLE IF NOT EXISTS profiles (account TEXT PRIMARY KEY, data TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, months INTEGER NOT NULL, atomic INTEGER NOT NULL UNIQUE,
+      nzd REAL NOT NULL, created INTEGER NOT NULL, state TEXT NOT NULL, conf INTEGER NOT NULL DEFAULT 0, code TEXT);
     CREATE TABLE IF NOT EXISTS suggestions (id INTEGER PRIMARY KEY, listing_id TEXT NOT NULL, account TEXT NOT NULL,
       fields TEXT NOT NULL, day TEXT NOT NULL, UNIQUE (listing_id, account));
     """)
@@ -55,6 +60,8 @@ def connect() -> sqlite3.Connection:
             db.execute(f"ALTER TABLE events ADD COLUMN {col}")
     if "granted_tier" not in {r["name"] for r in db.execute("PRAGMA table_info(accounts)")}:
         db.execute("ALTER TABLE accounts ADD COLUMN granted_tier INTEGER")  # a tier a steward gives by hand
+    if "supporter_until" not in {r["name"] for r in db.execute("PRAGMA table_info(accounts)")}:
+        db.execute("ALTER TABLE accounts ADD COLUMN supporter_until TEXT")  # the last day of supporter months
     db.commit()
     return db
 

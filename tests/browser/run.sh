@@ -11,7 +11,8 @@ podman run -d --init --name wheel-zk-selftest --userns=keep-id --user "$(id -u):
 EVENTHUB_DB="$T/hub.db" WHEEL_JOIN_WORK_BITS="${WHEEL_JOIN_WORK_BITS:-18}" WHEEL_ZK_URL=http://127.0.0.1:8793 WHEEL_SELFTEST=1 /usr/bin/python3 -E -s hub/server.py --port 8791 > "$T/server.log" 2>&1 &
 HUB=$!
 sleep 1.5
+CODE=$(EVENTHUB_DB="$T/hub.db" /usr/bin/python3 -E -s hub/wheelctl.py codes 1 1 selftest)
 P=$HOME/Downloads/hubshots; mkdir -p "$P/prof-selftest"
-timeout 120 flatpak run org.mozilla.firefox --headless --no-remote --new-instance --profile "$P/prof-selftest" --screenshot "$P/selftest.png" --window-size=900,1400 "http://localhost:8791/selftest.html" >/dev/null 2>&1 || true
+timeout 120 flatpak run org.mozilla.firefox --headless --no-remote --new-instance --profile "$P/prof-selftest" --screenshot "$P/selftest.png" --window-size=900,1400 "http://localhost:8791/selftest.html?code=$CODE" >/dev/null 2>&1 || true
 kill "$HUB"; podman rm -f wheel-zk-selftest >/dev/null; rm -rf "$T" "$P/prof-selftest"
 echo "screenshot: $P/selftest.png"
