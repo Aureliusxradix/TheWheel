@@ -649,3 +649,9 @@ html[data-ui="simple"] .ev.festival:not(:has(.ev-name[aria-expanded="true"])) .c
 .org-steps b { color: var(--ink); }
 .org-how h2 { margin-top: 1.4rem; }
 .board-how { max-width: 46rem; }
+
+/* communities added directly (2026-10-23) */
+.comm-add { max-width: 46rem; }
+.comm-add summary { cursor: pointer; }
+.comm-add form { max-width: none; }
+.board-about { color: var(--dim); font-size: .9rem; max-width: 62ch; }

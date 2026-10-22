@@ -429,6 +429,46 @@ def merge_copy(keep: dict, drop: dict):
     store.close_reports(db(), drop["id"])
 
 
+# Communities added directly (his picks 2026-10-23: "Proven organisers listed, Add a community"): a group that keeps
+# meeting, with no dated listing needed. Checked by members like a listing; shown on the board once checked.
+COMMUNITY_FIELDS = ("name", "about", "where", "when", "link", "tags", "modes")
+
+
+def clean_community(b: dict) -> dict:
+    line = lambda x, n: re.sub(r"\s+", " ", str(x or "")).strip()[:n]  # noqa: E731
+    rec = {"name": line(b.get("name"), 80), "about": str(b.get("about") or "").strip()[:600],
+           "where": line(b.get("where"), 120), "when": line(b.get("when"), 120), "link": line(b.get("link"), 300) or None,
+           "tags": [line(t, 40).lower() for t in (b.get("tags") or [])[:8] if line(t, 40)],
+           "modes": [m for m in (b.get("modes") or []) if m in MODES]}
+    if len(rec["name"]) < 2:
+        raise ValueError("Give the community its name.")
+    if not rec["when"]:
+        raise ValueError("Say roughly when it meets: every Friday evening, the first Sunday of the month.")
+    if not rec["modes"]:
+        raise ValueError("Pick at least one mode: Day, Night or Recovery.")
+    if rec["link"]:
+        if not re.fullmatch(r"https?://[^\s<>\"']+", rec["link"]):
+            raise ValueError("The link is a web address starting https://")
+        c = chats.classify(rec["link"])
+        if c:
+            raise ValueError("Group chat links stay with listings, where members see them. Link the community's page instead.")
+    return rec
+
+
+def community_public(c: dict) -> dict:
+    return {k: c.get(k) for k in ("id",) + COMMUNITY_FIELDS}
+
+
+def proven_organisers() -> list[dict]:
+    held = claimed_map()
+    out = []
+    for r in db().execute("SELECT * FROM organisers WHERE verified_day IS NOT NULL ORDER BY name"):
+        if gate.hit(GATE, r["name"]):
+            continue
+        out.append({**organisers.public(dict(r)), "listings": sum(1 for v in held.values() if v["id"] == r["id"])})
+    return out
+
+
 def claimed_map() -> dict:
     """listing id -> the proven organiser holding it, as everyone sees it."""
     return {r["listing_id"]: {"id": r["id"], "name": r["name"]} for r in db().execute(
@@ -576,6 +616,8 @@ LOG_TEXT = {
     "org_updated": "The organiser {org} updated {fields} on {L}.",
     "org_checkin": "The organiser {org} opened check-in for {L}.",
     "dup_merged": "A {by} merged a copy into {L}.",
+    "community_checked": "Reviews checked the community \u201c{name}\u201d.",
+    "community_turned_down": "Reviews turned down a community.",
     "dup_apart": "A {by} marked {L} and a look-alike on the same day as different events.",
 }
 FIELD_WORDS = {"name": "the name", "start_date": "the date", "start_time": "the start time", "end_date": "the end date",
@@ -825,6 +867,18 @@ class Handler(BaseHTTPRequestHandler):
                     claims.append({"listing": r["id"], "name": r["name"], "links": [x for x in (r.get("website"), r.get("tickets_url"),
                                    (r.get("source") or {}).get("url")) if x], "organiser": organisers.public(o)})
             return self.send(200, {"vouch": [organisers.public(o) for o in organisers.waiting_vouch(db())], "claims": claims})
+        if u.path == "/api/communities":  # the board's own entries, and proven organisers; ?pending=1 for Review
+            if p.get("pending", [""])[0] == "1":
+                mine = self.account() if self.headers.get("Authorization") else None
+                out = []
+                for c in store.communities(db(), "pending"):
+                    if withheld(dict(c)):
+                        continue
+                    mv = [x["verdict"] for x in store.reviews_for(db(), c["id"]) if x["account"] == mine]
+                    out.append({**community_public(c), "mine": bool(mine) and c["_account"] == mine, "my_verdict": mv[0] if mv else None})
+                return self.send(200, {"pending": out})
+            return self.send(200, {"communities": [community_public(c) for c in store.communities(db(), "approved") if not withheld(dict(c))],
+                                   "organisers": proven_organisers()})
         if u.path == "/api/duplicates":  # look-alike listings on the same day, for Review
             return self.send(200, {"pairs": duplicate_pairs()})
         if u.path == "/api/appeals":  # stewards: rank appeals waiting for a look
@@ -1132,6 +1186,37 @@ class Handler(BaseHTTPRequestHandler):
                 o = organisers.get(db(), c["organiser_id"])
                 store.log(db(), "org_claim_granted" if b["action"] == "grant" else "org_claim_refused", m.group(1), org=o["name"] if o else "")
                 return self.send(200, {"ok": True})
+            if u.path == "/api/communities":  # a member adds a community; it waits for review
+                acct, t = self.need(0)
+                if acct is None:
+                    return
+                day = datetime.now(TZ).date().isoformat()
+                if store.count_deposit(db(), "community:" + acct, day) > 3:
+                    return self.fail(429, "That's three communities today. More tomorrow.")
+                rec = {"id": secrets.token_hex(8), **clean_community(b)}
+                store.community_put(db(), rec, "pending", acct, day)
+                return self.send(200, {"saved": rec["id"]})
+            m = re.fullmatch(r"/api/communities/([0-9a-f]{16})", u.path)
+            if m:  # a review of a community, weighted like a listing's
+                acct, t = self.need(0)
+                if acct is None:
+                    return
+                c = store.community(db(), m.group(1))
+                if c is None or c["state"] != "pending":
+                    return self.fail(404, "That community has been decided. Reload Review.")
+                if c["_account"] == acct:
+                    return self.fail(403, "You added this one, so someone else checks it.")
+                if b.get("action") not in ("approve", "reject"):
+                    return self.fail(400, "Pick right or wrong.")
+                store.cast_review(db(), c["id"], acct, b["action"], rep.WEIGHT[t], datetime.now(TZ).date().isoformat())
+                revs = store.reviews_for(db(), c["id"])
+                cf, ca = rep.certainty([r["weight"] for r in revs if r["verdict"] == "approve"], [r["weight"] for r in revs if r["verdict"] == "reject"])
+                state = rep.settled_state(cf, ca)
+                if state != "pending":
+                    body = {k: v for k, v in c.items() if k not in ("state", "_account")}
+                    store.community_put(db(), body, state)
+                    store.log(db(), "community_checked" if state == "approved" else "community_turned_down", name=c["name"])
+                return self.send(200, {"state": state, "certainty": {"for": cf, "against": ca, "reviews": len(revs)}})
             if u.path == "/api/duplicates":  # a Reviewer merges a copy, or keeps two look-alikes apart
                 acct, t = self.need(2)
                 if acct is None:

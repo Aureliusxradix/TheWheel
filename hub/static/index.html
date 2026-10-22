@@ -111,6 +111,7 @@
     <div id="rv-appeals"></div>
     <div id="rv-orgs"></div>
     <div id="rv-dupes"></div>
+    <div id="rv-comms"></div>
     <label class="search"><span class="sr-only">Search the review list</span>
       <input id="rq" type="search" placeholder="Find one to review: name, place, date…" autocomplete="off"></label>
     <div class="chips rq-modes" role="group" aria-label="Show listings for">
@@ -211,7 +212,7 @@
       <li><b>A simpler phone view.</b> The list first, filters behind one button, the tools in a Menu, and a switch beside the name for everything at once. The same header in both views, with Add a listing up top.</li>
       <li><b>Organiser accounts.</b> Their own key and public name, proven by a code on their page or a steward's word. They claim their listings, post updates and open check-ins.</li>
       <li><b>A door code that changes every minute,</b> shown on the organiser's phone, so a code passed around outside soon stops working.</li>
-      <li><b>Communities and regular events.</b> A board of the groups that keep meeting, a page for each regular event with all its dates, and "Also on" links between listings of the same event.</li>
+      <li><b>Communities and regular events.</b> A board of the groups that keep meeting, a page for each regular event with all its dates, and "Also on" links between listings of the same event. Groups without dated listings can be added directly and checked by members, and proven organisers are listed there too.</li>
       <li><b>A moderation log and appeals.</b> Every check, fix and steward decision written where anyone can read it, by role. A turned-down listing gets one more look by fresh reviewers; a rank reset goes to the stewards.</li>
       <li><b>A weekly digest,</b> every Monday morning, through The Wheel's own push server or as RSS.</li>
       <li><b>Duplicates.</b> Copies of the same listing on the same day show once; look-alikes go to Review for a person to merge or keep apart.</li>
@@ -377,7 +378,22 @@
   <section id="view-board" class="view prose" aria-labelledby="h-board" hidden>
     <h1 id="h-board">Communities</h1>
     <p class="lede">The groups that keep meeting: a weekly circle, a monthly open mic, an organiser with more coming up. Open one to see all its dates.</p>
-    <p class="hint board-how"><b>How a community gets here:</b> from its listings, by itself. A listing that repeats, an event listed on several dates, or an organiser with two or more listings ahead shows up here. To bring yours in, add its next dates under <a href="#add">+ Add a listing</a>; an <a href="#org">organiser account</a> then keeps them right.</p>
+    <p class="hint board-how"><b>How a community gets here:</b> from its listings, by itself: a listing that repeats, an event listed on several dates, or an organiser with two or more listings ahead. Proven <a href="#org">organisers</a> show here too. A group that meets without dates listed yet can be added below; it shows once members have checked it.</p>
+    <details class="card comm-add" id="comm-add"><summary><b>+ Add a community</b></summary>
+      <form id="comm-form">
+        <label for="cm-name">Name</label><input id="cm-name" maxlength="80" required>
+        <label for="cm-about">What it is</label><textarea id="cm-about" rows="3" maxlength="600" placeholder="Who it's for and what happens there"></textarea>
+        <div class="fields">
+          <div><label for="cm-when">When it meets</label><input id="cm-when" maxlength="120" placeholder="Every Friday evening" required></div>
+          <div><label for="cm-where">Where</label><input id="cm-where" maxlength="120" placeholder="Orewa Hall, or online"></div>
+          <div class="wide"><label for="cm-link">Its page (a link)</label><input id="cm-link" maxlength="300" placeholder="https://"></div>
+          <div class="wide"><label for="cm-tags">Kinds, separated by commas</label><input id="cm-tags" maxlength="200" placeholder="kava, talk story"></div>
+        </div>
+        <fieldset class="modes-pick"><legend>Modes</legend>
+          <label><input type="checkbox" data-cmode="day"> Day</label><label><input type="checkbox" data-cmode="night"> Night</label><label><input type="checkbox" data-cmode="recovery"> Recovery</label></fieldset>
+        <p class="hint">Members check it before it shows. Group chat links stay with listings, where only members see them.</p>
+        <button type="submit" class="primary">Send for review</button><p class="status" id="cm-status" role="status"></p>
+      </form></details>
     <div id="board"></div>
   </section>
 

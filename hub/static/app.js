@@ -914,6 +914,7 @@ async function loadReview() {
   loadAppeals().catch(() => {});
   loadOrgWaiting().catch(() => {});
   loadDupes().catch(() => {});
+  loadCommsWaiting().catch(() => {});
   setCount(events.filter(toCheck).length);
   reviewQueue = events;
   renderReview();
@@ -1161,6 +1162,7 @@ document.addEventListener("click", (e) => {
   if (t.dataset.share) shareListing(t);
   if (t.dataset.ui) setUI(t.dataset.ui);
   if (t.id === "ui-switch") setUI(UI === "simple" ? "full" : "simple");
+  if (t.dataset.commact) commAct(t);
   if (t.dataset.dupkeep) dupAct({ action: "merge", keep: t.dataset.dupkeep, drop: t.dataset.dupdrop });
   if (t.dataset.dupapart) dupAct({ action: "apart", a: t.dataset.dupapart, b: t.dataset.dupother });
   if (t.dataset.orgnew) orgNew(t);
@@ -1211,6 +1213,7 @@ const drop = $("#drop");
 drop.addEventListener("drop", (e) => showFlyer(e.dataTransfer.files[0]));
 drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("#add-file").click(); } });
 $("#area-form").addEventListener("submit", saveArea);
+$("#comm-form").addEventListener("submit", addCommunity);
 
 /* ---------- supporters and profiles (his calls 2026-10-22): looks for supporter months, paid as codes; a profile in
    the Ledger layout where every item carries its audience and a note on what it gives away ---------- */
@@ -1460,7 +1463,16 @@ async function loadBoard() {
   const orgRow = (g) => `<li class="board-row"><span class="board-name">${esc(g.name)}</span>
     <span class="board-meta">${g.events.length} coming up</span>
     <ul class="board-events">${g.events.sort((a, b) => on(a).localeCompare(on(b))).map((e) => `<li><a href="#l/${e.id}">${esc(e.name)}</a>, ${esc(fmtShort(on(e)))}</li>`).join("")}</ul></li>`;
+  const extra = await api("/api/communities").catch(() => ({ communities: [], organisers: [] }));
+  const commRow = (c) => `<li class="board-row"><span class="board-name">${esc(c.name)}</span>
+    <span class="board-meta">${esc([c.when, c.where].filter(Boolean).join(" · "))}</span>
+    ${c.about ? `<span class="board-about">${esc(c.about)}</span>` : ""}
+    ${c.link ? `<a href="${esc(c.link)}" target="_blank" rel="noopener">Their page</a>` : ""}</li>`;
+  const provenRow = (o) => `<li class="board-row"><a class="board-name" href="#o/${esc(o.id)}">${esc(o.name)}</a>
+    <span class="board-meta">${o.listings ? `${o.listings} ${o.listings === 1 ? "listing" : "listings"} kept up to date` : "a proven organiser"}</span></li>`;
   $("#board").innerHTML = `<h2>Meets regularly</h2>${regular.length ? `<ul class="board">${regular.map(regRow).join("")}</ul>` : `<p class="hint">A listing that repeats shows here. Add one under Add a listing.</p>`}
+    ${extra.communities.length ? `<h2>Groups that keep meeting</h2><ul class="board">${extra.communities.map(commRow).join("")}</ul>` : ""}
+    ${extra.organisers.length ? `<h2>Organisers on The Wheel</h2><ul class="board">${extra.organisers.map(provenRow).join("")}</ul>` : ""}
     <h2>Organisers with more coming up</h2>${orgs.length ? `<ul class="board">${orgs.map(orgRow).join("")}</ul>` : `<p class="hint">An organiser with two or more listings ahead shows here.</p>`}`;
 }
 
@@ -1666,6 +1678,30 @@ async function loadDupes() {
 }
 async function dupAct(body) {
   try { await api("/api/duplicates", body); toast(body.action === "merge" ? "Merged" : "Kept apart"); loadDupes(); loadReview(); }
+  catch (e) { toast(e.message); }
+}
+
+async function addCommunity(e) {
+  e.preventDefault();
+  const out = $("#cm-status");
+  const body = { name: $("#cm-name").value, about: $("#cm-about").value, when: $("#cm-when").value, where: $("#cm-where").value,
+    link: $("#cm-link").value, tags: $("#cm-tags").value.split(",").map((t) => t.trim()).filter(Boolean),
+    modes: $$("[data-cmode]").filter((c) => c.checked).map((c) => c.dataset.cmode) };
+  try { await api("/api/communities", body); $("#comm-form").reset(); out.textContent = "Sent. It shows here once members have checked it."; toast("Sent for review"); }
+  catch (err) { out.innerHTML = /join/i.test(err.message) ? `Communities come from members: join on the <a href="#me">Me</a> page, one tap.` : esc(err.message); }
+}
+async function loadCommsWaiting() {
+  const box = $("#rv-comms");
+  const { pending } = await api("/api/communities?pending=1");
+  const open = pending.filter((c) => !c.mine);
+  box.innerHTML = open.length ? `<details class="card dupes"><summary><b>Communities waiting (${open.length})</b></summary>
+    <p class="hint">Groups added without dated listings. Check the name, when and where against their page.</p>
+    ${open.map((c) => `<div class="dup-pair" data-cid="${c.id}"><b>${esc(c.name)}</b><div class="hint">${esc([c.when, c.where].filter(Boolean).join(" · "))}</div>
+      ${c.about ? `<p>${esc(c.about)}</p>` : ""}${c.link ? `<a href="${esc(c.link)}" target="_blank" rel="noopener">Their page</a>` : ""}
+      ${reviewMe ? `<div class="actions"><button type="button" class="primary" data-commact="approve">It's right</button><button type="button" class="danger" data-commact="reject">It's wrong</button>${c.my_verdict ? `<span class="hint">You said: ${c.my_verdict === "approve" ? "right" : "wrong"}.</span>` : ""}</div>` : `<p class="hint"><a href="#me">Sign in</a> to check it.</p>`}</div>`).join("")}</details>` : "";
+}
+async function commAct(btn) {
+  try { const r = await api(`/api/communities/${btn.closest("[data-cid]").dataset.cid}`, { action: btn.dataset.commact }); toast(r.state === "approved" ? "Checked: it's on the board" : r.state === "rejected" ? "Turned down" : "Thanks: it waits for more reviews"); loadCommsWaiting(); }
   catch (e) { toast(e.message); }
 }
 

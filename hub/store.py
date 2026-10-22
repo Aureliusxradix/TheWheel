@@ -57,6 +57,8 @@ def connect() -> sqlite3.Connection:
       page TEXT NOT NULL, code TEXT NOT NULL, made_day TEXT NOT NULL, verified_day TEXT, verified_by TEXT, vouch_asked TEXT);
     CREATE TABLE IF NOT EXISTS claims (listing_id TEXT PRIMARY KEY, organiser_id TEXT NOT NULL, state TEXT NOT NULL,
       day TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS communities (id TEXT PRIMARY KEY, state TEXT NOT NULL, body TEXT NOT NULL, account TEXT,
+      day TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS fund (id INTEGER PRIMARY KEY, day TEXT NOT NULL, nzd REAL NOT NULL, how TEXT);
     CREATE TABLE IF NOT EXISTS dup_apart (a TEXT NOT NULL, b TEXT NOT NULL, day TEXT NOT NULL, PRIMARY KEY (a, b));
     CREATE TABLE IF NOT EXISTS modlog (id INTEGER PRIMARY KEY, day TEXT NOT NULL, kind TEXT NOT NULL, listing_id TEXT,
@@ -369,3 +371,21 @@ def fund_add(db, nzd: float, how: str | None, day: str):
 def fund_total(db) -> dict:
     r = db.execute("SELECT COALESCE(SUM(nzd), 0) total, COUNT(*) n, MAX(day) last FROM fund").fetchone()
     return {"raised": round(r["total"], 2), "gifts": r["n"], "updated": r["last"]}
+
+
+def community_put(db, rec: dict, state: str, account: str | None = None, day: str | None = None):
+    """A community that keeps meeting (his ask 2026-10-23), added directly and checked like a listing."""
+    with _lock:
+        db.execute("INSERT INTO communities(id, state, body, account, day) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+                   "state=excluded.state, body=excluded.body", (rec["id"], state, json.dumps(rec, ensure_ascii=False), account, day or ""))
+        db.commit()
+
+
+def communities(db, state: str) -> list[dict]:
+    return [{**json.loads(r["body"]), "state": r["state"], "_account": r["account"]}
+            for r in db.execute("SELECT * FROM communities WHERE state=? ORDER BY day DESC", (state,))]
+
+
+def community(db, cid: str) -> dict | None:
+    r = db.execute("SELECT * FROM communities WHERE id=?", (cid,)).fetchone()
+    return {**json.loads(r["body"]), "state": r["state"], "_account": r["account"]} if r else None
