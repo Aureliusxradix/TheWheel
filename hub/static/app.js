@@ -429,6 +429,8 @@ function laterDates(ev) {
 // Festivals stand out (his ask 2026-10-23): a larger card, the flyer as a banner, the whole date range and a badge.
 // A listing marked a festival, or one whose name or kinds say festival, shows this way.
 const isFestival = (ev) => ev.listing_kind === "festival" || (ev.listing_kind !== "volunteer" && /\b(festival|fest)s?\b/i.test([ev.name, ...(ev.tags || [])].join(" ")));
+// a flyer that fails to load leaves no empty box (the site's policy refuses inline handlers, so one listener, capturing)
+document.addEventListener("error", (e) => { if (e.target.matches?.(".fest-banner, a.flyer img")) e.target.closest("a")?.remove(); }, true);
 function dayRange(ev) {
   const a = d(on(ev)), b = d(onEnd(ev)), days = Math.round((b - a) / 864e5) + 1;
   const md = (x, mo) => `${x.getDate()}${mo ? ` ${x.toLocaleDateString("en-NZ", { month: "short" })}` : ""}`;
@@ -442,6 +444,16 @@ function festivalDetails(ev) {
   if ((f.tickets || []).length) rows.push(`<div><b>Tickets</b><ul>${f.tickets.map((t) => `<li>${esc(t.name)}${t.price ? `: ${esc(t.price)}` : ""}</li>`).join("")}</ul></div>`);
   [["camping", "Camping"], ["ages", "Ages"], ["bring", "What to bring"], ["access", "Access"]].forEach(([k, label]) => { if (f[k]) rows.push(`<div><b>${label}:</b> ${esc(f[k])}</div>`); });
   return rows.length ? `<div class="fest-details">${rows.join("")}</div>` : "";
+}
+
+// The date column says what is true (his note 2026-10-23: a running multi-day event "looks at first glance like a leftover
+// event"): on now and until when; or, for one still to come, its first and last day.
+function dateCell(ev, dt) {
+  const start = on(ev), end = onEnd(ev), dm = (iso) => `${d(iso).getDate()} ${d(iso).toLocaleDateString("en-NZ", { month: "short" })}`;
+  if (end > start && start <= state.today && end >= state.today && !ev.past)
+    return `<span class="n now">On now<small class="range">until ${esc(dm(end))}</small></span>`;
+  if (end > start) return `<span class="n">${esc(dm(start))}<small class="range">to ${esc(dm(end))}</small></span>`;
+  return `<span class="n">${dt.getDate()} ${dt.toLocaleDateString("en-NZ", { month: "short" })}<small>${fmtDay(on(ev))}</small></span>`;
 }
 
 function eventRow(ev, i = 0) {
@@ -468,9 +480,9 @@ function eventRow(ev, i = 0) {
       : `<span class="state ok" title="How sure the reviewers are, weighted by their rep">√ checked · ${pct(c.for)}</span>`;
   const fest = isFestival(ev), fr = fest ? dayRange(ev) : null;
   const banner = fest && ev.source?.flyer && /^[0-9a-f]{16}\.webp$/.test(ev.source.flyer)
-    ? `<a class="fest-banner-link" href="${API}/api/flyer/${ev.source.flyer}" target="_blank" rel="noopener"><img class="fest-banner" src="${API}/api/flyer/${ev.source.flyer}" alt="The flyer for ${esc(ev.name)}" loading="lazy"></a>` : "";
+    ? `<a class="fest-banner-link" href="${API}/api/pic/${ev.source.flyer}" target="_blank" rel="noopener"><img class="fest-banner" src="${API}/api/pic/${ev.source.flyer}" alt="The flyer for ${esc(ev.name)}" loading="lazy"></a>` : "";
   return `<article class="ev k${i % 3}${volunteer ? " volunteer" : ""}${fest ? " festival" : ""}${ev.past ? " past" : ""}" id="ev-${ev.id}">
-    <span class="n">${dt.getDate()} ${dt.toLocaleDateString("en-NZ", { month: "short" })}<small>${fmtDay(on(ev))}</small></span>
+    ${dateCell(ev, dt)}
     <div class="ev-main">
       ${fest ? `${banner}<div class="fest-head"><span class="chip strong">Festival${fr.days > 1 ? ` · ${fr.days} days` : ""}</span><span class="fest-dates">${esc(fr.text)}</span></div>` : ""}
       <button type="button" class="ev-name" aria-expanded="false" data-open="${ev.id}">${esc(ev.name)}</button>
@@ -623,7 +635,7 @@ async function openShared(id) {
 function flyerImg(ev) {
   const f = ev.source?.flyer;
   return f && /^[0-9a-f]{16}\.webp$/.test(f)
-    ? `<a class="flyer" href="${API}/api/flyer/${f}" target="_blank" rel="noopener"><img src="${API}/api/flyer/${f}" alt="The flyer for ${esc(ev.name)}" loading="lazy"></a>` : "";
+    ? `<a class="flyer" href="${API}/api/pic/${f}" target="_blank" rel="noopener"><img src="${API}/api/pic/${f}" alt="The flyer for ${esc(ev.name)}" loading="lazy"></a>` : "";
 }
 // listings organised in a group chat (his rulings 2026-10-21): the link to members with the organiser's OK
 const CHAT = { signal: "Signal", whatsapp: "WhatsApp", telegram: "Telegram", discord: "Discord", other: "" };

@@ -861,7 +861,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(404, share.gone(SITE + "#night").encode(), TYPES[".html"])
             fl = (rec.get("source") or {}).get("flyer")
             return self.send(200, share.page(rec, share_url(base, rec["id"]), f"{SITE}#l/{rec['id']}",
-                                             f"{base}/api/flyer/{fl}" if fl and flyer.NAME.fullmatch(str(fl)) else None).encode(),
+                                             f"{base}/api/pic/{fl}" if fl and flyer.NAME.fullmatch(str(fl)) else None).encode(),
                              TYPES[".html"])
         m = re.fullmatch(r"/api/ics/([0-9a-f]{16})\.ics", u.path)
         if m:  # one listing for your calendar, on the date it is shown on
@@ -886,7 +886,8 @@ class Handler(BaseHTTPRequestHandler):
             if u.path.endswith(".xml"):
                 return self.send(200, share.digest_rss(d, base + u.path), "application/rss+xml; charset=utf-8")
             return self.send(200, d)
-        m = re.fullmatch(r"/api/flyer/([0-9a-f]{16}\.webp)", u.path)
+        # flyers at a neutral address (2026-10-23: a content blocker in his browser stopped /api/flyer/); the old one stays
+        m = re.fullmatch(r"/api/(?:pic|flyer)/([0-9a-f]{16}\.webp)", u.path)
         if m:
             f = FLYERS / m.group(1)
             if f.is_file() and store.flyer_in_use(db(), m.group(1)):
