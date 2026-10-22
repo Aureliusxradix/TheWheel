@@ -36,7 +36,7 @@ from urllib.parse import parse_qs, urlsplit
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from hub import chats, flyer, gate, kinds, repeats, rep, share, store, support  # noqa: E402
+from hub import chats, flyer, gate, kinds, organisers, repeats, rep, share, store, support  # noqa: E402
 from reader import core  # noqa: E402
 
 STATIC = ROOT / "hub" / "static"
@@ -53,7 +53,7 @@ EDITABLE = {"name", "summary", "description", "start_date", "start_time", "end_d
             "status", "location_name", "location_address", "location_locality", "price", "website",
             "tickets_url", "tags", "organiser", "online", "modes", "listing_kind", "slots", "requirements",
             "chat_platform", "chat_link", "chat_link_ok", "chat_text"}
-MEMBERS_ONLY = ("chat_link", "chat_link_ok", "chat_text")  # a group's link and its announcement: signed-in members only
+MEMBERS_ONLY = ("chat_link", "chat_link_ok", "chat_text", "appeal_note")  # a group's link and its announcement: signed-in members only
 MODES = {"day", "night", "recovery"}
 MAX_BODY = 12 * 1024 * 1024
 ZK = os.environ.get("WHEEL_ZK_URL", "http://127.0.0.1:8792")  # zk/server.mjs, the member service (zk/run.sh)
@@ -63,6 +63,9 @@ JOIN_FIRST = "Join The Wheel first, on the Me page. It takes one tap."
 API_ONLY = os.environ.get("WHEEL_API_ONLY") == "1"
 ORIGINS = {o.strip() for o in os.environ.get("WHEEL_ORIGINS", "").split(",") if o.strip()}
 SITE = os.environ.get("WHEEL_SITE", "/")  # a share link opens the listing here, at #l/<id>
+ORG_FIELDS = ("start_date", "start_time", "end_date", "end_time", "location_name", "location_address", "location_locality",
+              "price", "website", "tickets_url", "description", "status", "recurrence")  # what a proven organiser keeps right
+STATUSES = ("confirmed", "tentative", "postponed", "cancelled")
 REPORT_REASONS = {"wrong": "The details are wrong", "over": "Cancelled, moved or over", "unsafe": "Unsafe or harmful"}
 PRIVATE_FIELDS = ("deposited_by", "deposited_account", "deposit_day")  # who added a listing never leaves the server
 HELD = "The Wheel held this answer back: it carried something that stays on the server."
@@ -73,11 +76,13 @@ GATE = None  # set in main(): the identity gate's compiled word list
 CAPS = {"join": int(os.environ.get("WHEEL_JOINS_PER_DAY", "50")),
         "read": int(os.environ.get("WHEEL_READS_PER_DAY", "60")),
         "submit": int(os.environ.get("WHEEL_SUBMITS_PER_DAY", "100")),
-        "order": int(os.environ.get("WHEEL_ORDERS_PER_DAY", "100"))}
+        "order": int(os.environ.get("WHEEL_ORDERS_PER_DAY", "100")),
+        "org": int(os.environ.get("WHEEL_ORGS_PER_DAY", "20"))}
 CAP_TEXT = {"join": "The Wheel has taken all the new members it takes in one day. Join tomorrow.",
             "read": "The Wheel has read all the posts it reads in one day. Paste it tomorrow, or fill the listing in by hand.",
             "submit": "The Wheel has taken all the new listings it takes in one day. Add it tomorrow.",
-            "order": "The Wheel has opened all the Monero orders it opens in one day. Try tomorrow, or pay another way."}
+            "order": "The Wheel has opened all the Monero orders it opens in one day. Try tomorrow, or pay another way.",
+            "org": "The Wheel has made all the organiser accounts it makes in one day. Try tomorrow."}
 
 
 # A few seconds of work in the browser before a join (his "Do A-F", 2026-10-22): cheap for one person, a cost per
@@ -337,15 +342,41 @@ def dated(r: dict, today: str) -> dict:
     return r
 
 
+def claimed_map() -> dict:
+    """listing id -> the proven organiser holding it, as everyone sees it."""
+    return {r["listing_id"]: {"id": r["id"], "name": r["name"]} for r in db().execute(
+        "SELECT c.listing_id, o.id, o.name FROM claims c JOIN organisers o ON o.id = c.organiser_id "
+        "WHERE c.state='claimed' AND o.verified_day IS NOT NULL") if not gate.hit(GATE, r["name"])}  # a marked name stays off
+
+
+def org_update(rec: dict, o: dict, edits: dict) -> list[str]:
+    """A proven organiser keeps its listing right: the details in ORG_FIELDS and an update note, straight away."""
+    if edits.get("status") not in (None, "") and edits["status"] not in STATUSES:
+        raise ValueError("Pick a status: confirmed, tentative, postponed or cancelled.")
+    fields = {k: v for k, v in edits.items() if k in ORG_FIELDS}
+    changed = sorted(changes(rec, fields))
+    clean(rec, fields)
+    note = chats.scrub(str(edits.get("note") or ""))[:280]
+    if note and note != (rec.get("org_note") or {}).get("text"):
+        rec["org_note"] = {"text": note, "day": datetime.now(TZ).date().isoformat()}
+        changed.append("org_note")
+    if changed:
+        store.put(db(), rec, rec["review"]["state"])
+    return changed
+
+
 def listing(params: dict, member: bool = False) -> dict:
     states = ("approved", "pending") if params.get("unreviewed", ["1"])[0] == "1" else ("approved",)
     all_areas = store.areas(db())
     today = datetime.now(TZ).date().isoformat()
     out = []
     merged = store.merges(db())
+    held = claimed_map()
     for r in store.events(db(), states):
         if withheld(public(r)):
             continue
+        if r["id"] in held:
+            r["claimed_by"] = held[r["id"]]
         r["tags"] = kinds.apply(r.get("tags") or [], merged)  # shown merged; the listing keeps its own words
         dated(r, today)
         r["areas"] = store.areas_for(r, all_areas)
@@ -398,7 +429,93 @@ def file_report(rec: dict, acct: str, t: int, reason: str, note, day: str) -> bo
     rec["reopened"] = True
     rec["review"] = {"state": "pending", "by": "reports", "at": store.now()}
     store.put(db(), rec, "pending")
+    store.log(db(), "reopened", rec["id"])
     return True
+
+
+def steps_aside(rec: dict, acct: str) -> bool:
+    """In an appeal's round, a member who reviewed the listing before it was turned down leaves it to others."""
+    return rec.get("appeal_round") is not None and rec.get("appeal_round") == rec.get("round") and any(
+        x["account"] == acct and x["round"] < rec["round"] for x in store.reviews_for(db(), rec["id"]))
+
+
+def file_appeal(rec: dict, acct: str, note) -> str | None:
+    """The member who added a turned-down listing asks once for another look: back to review in a new round, where
+    those who reviewed it before step aside. Returns why it was refused, or None."""
+    if rec.get("deposited_account") != acct:
+        return "Only the member who added a listing can appeal it."
+    if rec.get("review", {}).get("state") != "rejected":
+        return "Only a turned-down listing can be appealed."
+    if rec.get("appealed"):
+        return "This listing has had its appeal."
+    rec["round"] = rec.get("round", 0) + 1
+    rec["appeal_round"], rec["appealed"] = rec["round"], True
+    rec["appeal_note"] = chats.scrub(str(note or ""))[:300] or None
+    rec["review"] = {"state": "pending", "by": "appeal", "at": store.now()}
+    store.put(db(), rec, "pending")
+    store.log(db(), "appealed", rec["id"])
+    return None
+
+
+# The moderation log (2026-10-22, the Roadmap's "A public moderation log"): each line says what was done and by which
+# role, never by which pen name. A listing is named only while it is on the list; a turned-down one stays "a listing".
+LOG_TEXT = {
+    "checked": "Reviews checked {L}.",
+    "turned_down": "Reviews turned down a listing.",
+    "reopened": "Members reported {L}, so it went back to review.",
+    "appealed": "The member who added {L} asked for another look, so it went back to review with fresh reviewers.",
+    "fixed": "A {by} fixed {fields} on {L}.",
+    "suggestion_used": "A {by} used a member's suggested fix on {L}.",
+    "suggestion_dropped": "A {by} set aside a member's suggested fix on {L}.",
+    "kind_merged": "A Steward merged the kind \u201c{a}\u201d into \u201c{c}\u201d.",
+    "kind_apart": "A Steward kept the kinds \u201c{a}\u201d and \u201c{c}\u201d apart.",
+    "kind_unmerged": "A Steward undid the merge of the kind \u201c{a}\u201d.",
+    "area_added": "A Steward added the area {name}.",
+    "area_removed": "A Steward removed the area {name}.",
+    "checkin_opened": "A Steward opened check-in for {L}.",
+    "steward_named": "A member became a Steward.",
+    "rank_reset": "A Steward reset a member's rank to zero.",
+    "tier_given": "A Steward set a member's tier by hand: {tier}.",
+    "taken_out": "A Steward took out a listing.",
+    "flyer": "A Steward attached a flyer to {L}.",
+    "rank_appeal": "A member asked the stewards to look again at their rank reset.",
+    "rank_restored": "A Steward looked again and restored a member's rank.",
+    "rank_kept": "A Steward looked again and kept a member's rank reset.",
+    "org_proven": "The organiser {org} proved its page.",
+    "org_vouched": "A Steward vouched for the organiser {org}.",
+    "org_claimed": "The organiser {org} claimed {L}.",
+    "org_claim_granted": "A Steward gave {L} to the organiser {org}.",
+    "org_claim_refused": "A Steward turned down a claim on {L}.",
+    "org_updated": "The organiser {org} updated {fields} on {L}.",
+    "org_checkin": "The organiser {org} opened check-in for {L}.",
+}
+FIELD_WORDS = {"name": "the name", "start_date": "the date", "start_time": "the start time", "end_date": "the end date",
+               "end_time": "the end time", "location_name": "the place", "location_locality": "the town",
+               "location_address": "the address", "price": "the price", "website": "the organiser's link",
+               "tickets_url": "the tickets link", "tags": "the kinds", "description": "the description", "modes": "the modes",
+               "recurrence": "the repeat", "slots": "the shifts", "requirements": "what it asks for",
+               "listing_kind": "the kind of listing", "status": "the status", "organiser": "the organiser",
+               "summary": "the summary", "online": "online or not", "org_note": "its update note"}
+
+
+def log_entries(before: int | None) -> dict:
+    out, rows = [], store.modlog(db(), before, 101)
+    for e in rows[:100]:
+        rec = store.get(db(), e["listing_id"]) if e["listing_id"] else None
+        shown = (e["kind"] not in ("turned_down", "taken_out") and rec is not None
+                 and rec.get("review", {}).get("state") in ("approved", "pending") and not withheld(public(dict(rec))))
+        d = {k: v for k, v in e["data"].items()}
+        if "fields" in d:
+            words = [FIELD_WORDS.get(f, "a detail") for f in d["fields"]]
+            d["fields"] = ", ".join(dict.fromkeys(words)) or "a detail"
+        try:
+            text = LOG_TEXT[e["kind"]].format(L=f"\u201c{rec['name']}\u201d" if shown else "a listing", **d)
+        except (KeyError, IndexError):
+            continue
+        if gate.hit(GATE, text):
+            continue
+        out.append({"id": e["id"], "day": e["day"], "text": text, "listing": e["listing_id"] if shown else None})
+    return {"entries": out, "more": len(rows) > 100}
 
 
 def reported(rec: dict) -> list[dict]:
@@ -423,7 +540,7 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if origin and origin in ORIGINS:
             self.send_header("Access-Control-Allow-Origin", origin)
-            self.send_header("Access-Control-Allow-Headers", "content-type, authorization")
+            self.send_header("Access-Control-Allow-Headers", "content-type, authorization, x-wheel-organiser")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
             self.send_header("Access-Control-Max-Age", "600")
             self.send_header("Vary", "Origin")
@@ -477,6 +594,16 @@ class Handler(BaseHTTPRequestHandler):
         host = re.sub(r"[^A-Za-z0-9.:-]", "", self.headers.get("Host") or "localhost")
         local = host.split(":")[0] in ("localhost", "127.0.0.1")
         return f"{'http' if local else 'https'}://{host}"
+
+    def organiser(self) -> dict | None:
+        """The organiser account whose key came with this request, or None. Never read beside a member's login."""
+        return organisers.by_key(db(), self.headers.get("X-Wheel-Organiser"))
+
+    def org_need(self) -> dict | None:
+        o = self.organiser()
+        if o is None:
+            self.send(401, {"error": "That needs your organiser account, on the For organisers page."})
+        return o
 
     def watcher(self) -> bool:
         tok, given = watch_token(), self.headers.get("X-Wheel-Watch") or ""
@@ -563,6 +690,57 @@ class Handler(BaseHTTPRequestHandler):
                 return self.fail(404, "That address is empty.")
             _watch_seen[0] = time.time()
             return self.send(200, {"orders": support.watch_list(db()), "address": support.XMR_ADDRESS})
+        if u.path == "/api/modlog":  # the public moderation log, newest first, 100 at a time
+            bf = p.get("before", [""])[0]
+            return self.send(200, log_entries(int(bf) if bf.isdigit() else None))
+        if u.path == "/api/mine":  # a member's own listings and any rank reset, for their Me page
+            acct, t = self.need(0)
+            if acct is None:
+                return
+            row = db().execute("SELECT reset_day FROM accounts WHERE account=?", (acct,)).fetchone()
+            open_appeal = [a for a in store.appeals(db()) if a["account"] == acct]
+            mine = [{"id": r["id"], "name": r.get("name"), "date": r.get("start_date"), "state": r.get("review", {}).get("state"),
+                     "appealed": bool(r.get("appealed"))} for r in store.deposits(db(), acct) if not withheld(public(dict(r)))]
+            return self.send(200, {"listings": mine, "reset_day": row["reset_day"] if row else None, "rank_appeal": bool(open_appeal)})
+        if u.path == "/api/org/me":  # the organiser's own account: its code, its claims
+            o = self.org_need()
+            if o is None:
+                return
+            claims = []
+            for c in organisers.claims_for(db(), o["id"]):
+                r = store.get(db(), c["listing_id"])
+                if r and not withheld(public(dict(r))):
+                    claims.append({"id": r["id"], "name": r["name"], "date": r["start_date"], "state": c["state"],
+                                   "listing": {k: r.get(k) for k in ORG_FIELDS + ("name", "org_note")}})
+            return self.send(200, {"organiser": {**organisers.public(o), "code": o["code"], "asked": bool(o["vouch_asked"])},
+                                   "claims": claims})
+        m = re.fullmatch(r"/api/o/([0-9a-f]{16})", u.path)
+        if m:  # an organiser as everyone sees it: name, page, proven, the listings it keeps
+            o = organisers.get(db(), m.group(1))
+            if o is None or not o["verified_day"]:
+                return self.fail(404, "No proven organiser by that address.")
+            held = [k for k, v in claimed_map().items() if v["id"] == o["id"]]
+            recs = [store.get(db(), k) for k in held]
+            today = datetime.now(TZ).date().isoformat()
+            shown = [dated(r, today) for r in recs if r and r["review"].get("state") in ("approved", "pending") and not withheld(public(r))]
+            return self.send(200, {"organiser": organisers.public(o),
+                                   "listings": [{"id": r["id"], "name": r["name"], "date": share.on(r), "past": r["past"]} for r in shown]})
+        if u.path == "/api/org/waiting":  # stewards: organisers asking for a vouch, claims to decide
+            acct, t = self.need(3)
+            if acct is None:
+                return
+            claims = []
+            for c in organisers.claims_waiting(db()):
+                r, o = store.get(db(), c["listing_id"]), organisers.get(db(), c["organiser_id"])
+                if r and o:
+                    claims.append({"listing": r["id"], "name": r["name"], "links": [x for x in (r.get("website"), r.get("tickets_url"),
+                                   (r.get("source") or {}).get("url")) if x], "organiser": organisers.public(o)})
+            return self.send(200, {"vouch": [organisers.public(o) for o in organisers.waiting_vouch(db())], "claims": claims})
+        if u.path == "/api/appeals":  # stewards: rank appeals waiting for a look
+            acct, t = self.need(3)
+            if acct is None:
+                return
+            return self.send(200, {"appeals": store.appeals(db())})
         if u.path == "/api/active":  # members in good standing: the cover a check-in can count on
             return self.send(200, {"active": active_members()})
         if u.path == "/api/me":
@@ -596,7 +774,8 @@ class Handler(BaseHTTPRequestHandler):
             rec = shown_listing(m.group(1))
             if rec is None:
                 return self.fail(404, "That listing has gone, or is waiting for review.")
-            return self.send(200, share.calendar([(rec, share.on(rec), share_url(base, rec["id"]))], rec["name"]),
+            days = share.dates_for_feed(rec) if p.get("all", [""])[0] == "1" else [share.on(rec)]  # ?all=1: every date ahead
+            return self.send(200, share.calendar([(rec, d, share_url(base, rec["id"])) for d in days], rec["name"]),
                              "text/calendar; charset=utf-8", f'attachment; filename="the-wheel-{rec["id"]}.ics"')
         if u.path in ("/api/feed.ics", "/api/feed.xml"):  # subscribe once: checked listings, in one mode or all
             mode = p.get("mode", [""])[0]
@@ -608,6 +787,11 @@ class Handler(BaseHTTPRequestHandler):
                                                       for day in share.dates_for_feed(r)], title), "text/calendar; charset=utf-8")
             return self.send(200, share.rss([(r, share_url(base, r["id"])) for r in items], title, SITE + (f"#{mode}" if mode else "")),
                              "application/rss+xml; charset=utf-8")
+        if u.path in ("/api/digest", "/api/digest.xml"):  # the week ahead: the weekly push reads it, and feed readers
+            d = share.digest(feed_items(None), datetime.now(TZ).date().isoformat(), SITE)
+            if u.path.endswith(".xml"):
+                return self.send(200, share.digest_rss(d, base + u.path), "application/rss+xml; charset=utf-8")
+            return self.send(200, d)
         m = re.fullmatch(r"/api/flyer/([0-9a-f]{16}\.webp)", u.path)
         if m:
             f = FLYERS / m.group(1)
@@ -657,6 +841,13 @@ class Handler(BaseHTTPRequestHandler):
                 if acct is None:
                     return
                 code, data = zk_call("POST", "/checkin", body=raw, admin=True)
+                if code == 200:
+                    try:
+                        eid = str(json.loads(raw or b"{}").get("event", ""))
+                        if re.fullmatch(r"[0-9a-f]{16}", eid):
+                            store.log(db(), "checkin_opened", eid)
+                    except ValueError:
+                        pass
                 return self.send(code, data)
             return self.fail(404, "That address is empty.")
         try:
@@ -739,16 +930,21 @@ class Handler(BaseHTTPRequestHandler):
                     return self.fail(400, "Pick approve, save, suggest or reject.")
                 if rec.get("deposited_account") == acct:
                     return self.fail(403, "You added this one, so someone else checks it.")
+                if steps_aside(rec, acct):
+                    return self.fail(403, "You reviewed this before its appeal, so other members look at it now.")
                 if action == "suggest":  # below the Reviewer tier: a fix waits for a Reviewer or Steward (his ruling 2026-10-21)
                     fields = changes(rec, b.get("edits") or {})
                     if not fields:
                         return self.fail(400, "Change a detail first, then send it.")
                     store.suggest(db(), rec["id"], acct, fields, datetime.now(TZ).date().isoformat())
                     return self.send(200, {"suggested": sorted(fields)})
-                edited = False
+                edited, before = False, rec["review"].get("state")
                 if t >= 2:  # fixing a listing's fields: Reviewer tier and up
+                    fixed = sorted(changes(rec, b.get("edits") or {}))
                     rec = clean(rec, b.get("edits") or {})
                     edited = True
+                    if fixed:
+                        store.log(db(), "fixed", rec["id"], by=rep.TIER_NAME[t], fields=fixed)
                 elif action == "save":
                     return self.fail(403, "Fixing a listing's details needs the Reviewer tier. You can approve or reject it.")
                 if action in ("approve", "reject"):
@@ -758,8 +954,124 @@ class Handler(BaseHTTPRequestHandler):
                 if rec["review"]["state"] != "pending":  # settled again: its reports are answered
                     rec.pop("reopened", None)
                     store.close_reports(db(), rec["id"])
+                if rec["review"]["state"] != before and rec["review"]["state"] in ("approved", "rejected"):
+                    store.log(db(), "checked" if rec["review"]["state"] == "approved" else "turned_down", rec["id"])
                 store.put(db(), rec, rec["review"]["state"])
                 return self.send(200, {"event": public(dict(rec)), "edited": edited, "me": rep.summary(db(), acct)})
+            if u.path == "/api/org/new":  # a new organiser account; its key is shown once
+                if over_cap("org"):
+                    return self.fail(429, CAP_TEXT["org"])
+                return self.send(200, organisers.new(db(), b.get("name"), b.get("page")))
+            if u.path == "/api/org/check":  # look for the organiser's code on its page
+                o = self.org_need()
+                if o is None:
+                    return
+                if o["verified_day"]:
+                    return self.send(200, {"proven": True})
+                if store.count_deposit(db(), "orgcheck:" + o["id"], datetime.now(TZ).date().isoformat()) > 10:
+                    return self.fail(429, "Ten checks a day. Try again tomorrow, or ask a steward.")
+                try:
+                    body, _ = core._fetch(o["page"])
+                except Exception as exc:  # a page that refuses outside readers, or one that is gone
+                    sys.stderr.write(f"org check {o['id']}: {exc!r}\n")
+                    return self.send(200, {"proven": False, "why": "fetch"})
+                if not organisers.page_shows(body, o["code"]):
+                    return self.send(200, {"proven": False, "why": "code"})
+                organisers.prove(db(), o["id"], "page")
+                store.log(db(), "org_proven", org=o["name"])
+                return self.send(200, {"proven": True})
+            if u.path == "/api/org/ask":  # a page The Wheel cannot read: a steward vouches instead
+                o = self.org_need()
+                if o is None:
+                    return
+                organisers.ask_vouch(db(), o["id"])
+                return self.send(200, {"asked": True})
+            m = re.fullmatch(r"/api/org/(claim|update|checkin)/([0-9a-f]{16})", u.path)
+            if m:
+                o = self.org_need()
+                if o is None:
+                    return
+                rec = store.get(db(), m.group(2))
+                if rec is None or rec.get("review", {}).get("state") not in ("approved", "pending"):
+                    return self.fail(404, "That listing has gone.")
+                if m.group(1) == "claim":
+                    try:
+                        st = organisers.claim(db(), o, rec)
+                    except PermissionError as exc:
+                        return self.fail(403, str(exc))
+                    if st == "claimed":
+                        store.log(db(), "org_claimed", rec["id"], org=o["name"])
+                    return self.send(200, {"state": st})
+                if not organisers.holds(db(), o, rec["id"]):
+                    return self.fail(403, "Claim this listing first.")
+                if m.group(1) == "update":
+                    changed = org_update(rec, o, b)
+                    if changed:
+                        store.log(db(), "org_updated", rec["id"], org=o["name"], fields=changed)
+                    return self.send(200, {"changed": changed})
+                code, data = zk_call("POST", "/checkin", body=json.dumps({"event": rec["id"], "rotating": True}).encode(), admin=True)
+                if code == 200:
+                    store.log(db(), "org_checkin", rec["id"], org=o["name"])
+                return self.send(code, data)
+            m = re.fullmatch(r"/api/org/([0-9a-f]{16})/vouch", u.path)
+            if m:  # a steward vouches for an organiser whose page The Wheel cannot read
+                acct, t = self.need(3)
+                if acct is None:
+                    return
+                o = organisers.get(db(), m.group(1))
+                if o is None:
+                    return self.fail(404, "That organiser has gone.")
+                organisers.prove(db(), o["id"], "steward")
+                store.log(db(), "org_vouched", org=o["name"])
+                return self.send(200, {"proven": True})
+            m = re.fullmatch(r"/api/org/claims/([0-9a-f]{16})", u.path)
+            if m:  # a steward decides a claim on a listing that links elsewhere
+                acct, t = self.need(3)
+                if acct is None:
+                    return
+                if b.get("action") not in ("grant", "refuse"):
+                    return self.fail(400, "Pick grant or refuse.")
+                c = organisers.answer_claim(db(), m.group(1), b["action"] == "grant")
+                if c is None:
+                    return self.fail(404, "That claim has gone. Reload the page.")
+                o = organisers.get(db(), c["organiser_id"])
+                store.log(db(), "org_claim_granted" if b["action"] == "grant" else "org_claim_refused", m.group(1), org=o["name"] if o else "")
+                return self.send(200, {"ok": True})
+            m = re.fullmatch(r"/api/appeal/([0-9a-f]{16})", u.path)
+            if m:  # another look at a turned-down listing, asked by the member who added it
+                rec = store.get(db(), m.group(1))
+                if rec is None:
+                    return self.fail(404, "That listing has gone.")
+                acct, t = self.need(0)
+                if acct is None:
+                    return
+                why = file_appeal(rec, acct, b.get("note"))
+                return self.fail(403, why) if why else self.send(200, {"appealed": True})
+            if u.path == "/api/appeal-rank":  # a member whose rank was reset asks the stewards to look again
+                acct, t = self.need(0)
+                if acct is None:
+                    return
+                row = db().execute("SELECT reset_day FROM accounts WHERE account=?", (acct,)).fetchone()
+                if not row or not row["reset_day"]:
+                    return self.fail(400, "Your rank has had no reset to appeal.")
+                store.appeal_rank(db(), acct, chats.scrub(str(b.get("note") or ""))[:500] or None, datetime.now(TZ).date().isoformat())
+                store.log(db(), "rank_appeal")
+                return self.send(200, {"appealed": True})
+            m = re.fullmatch(r"/api/appeals/(\d+)", u.path)
+            if m:  # a steward's answer to a rank appeal
+                acct, t = self.need(3)
+                if acct is None:
+                    return
+                if b.get("action") not in ("restore", "keep"):
+                    return self.fail(400, "Pick restore or keep.")
+                ap = [x for x in store.appeals(db()) if x["id"] == int(m.group(1))]
+                if not ap:
+                    return self.fail(404, "That appeal has gone. Reload the page.")
+                if ap[0]["account"] == acct:  # a steward never answers their own appeal
+                    return self.fail(403, "That's your own appeal, so another steward answers it.")
+                store.close_appeal(db(), ap[0]["id"], "restored" if b["action"] == "restore" else "kept")
+                store.log(db(), "rank_restored" if b["action"] == "restore" else "rank_kept")
+                return self.send(200, {"ok": True})
             m = re.fullmatch(r"/api/report/([0-9a-f]{16})", u.path)
             if m:  # a member says a listing is wrong, over or unsafe; enough weight sends a checked one back to review
                 rec = store.get(db(), m.group(1))
@@ -791,6 +1103,8 @@ class Handler(BaseHTTPRequestHandler):
                     store.put(db(), rec, rec["review"]["state"])
                 elif b.get("action") not in ("use", "drop"):
                     return self.fail(400, "Pick use or drop.")
+                store.log(db(), "suggestion_used" if b.get("action") == "use" else "suggestion_dropped", sg["listing_id"],
+                          by=rep.TIER_NAME[t])
                 store.drop_suggestion(db(), sg["id"])
                 return self.send(200, {"event": public(dict(rec)) if rec else None})
             if u.path == "/api/kinds":
@@ -800,10 +1114,13 @@ class Handler(BaseHTTPRequestHandler):
                 a, k = str(b.get("merge") or "").strip().lower(), str(b.get("keep") or "").strip().lower()
                 if b.get("action") == "merge" and a and k:
                     store.merge_tag(db(), a, k)
+                    store.log(db(), "kind_merged", a=a, c=k)
                 elif b.get("action") == "keep" and a and k:
                     store.keep_apart(db(), a, k)
+                    store.log(db(), "kind_apart", a=a, c=k)
                 elif b.get("action") == "undo" and a:
                     store.unmerge_tag(db(), a)
+                    store.log(db(), "kind_unmerged", a=a)
                 else:
                     return self.fail(400, "Pick merge, keep apart or undo, with the two kinds.")
                 return self.send(200, {"ok": True})
@@ -815,11 +1132,15 @@ class Handler(BaseHTTPRequestHandler):
                 name = (b.get("name") or "").strip()
                 if not name:
                     return self.fail(400, "Give the area a name.")
-                return self.send(200, store.add_area(db(), name, float(b["lat"]), float(b["lng"]),
-                                                     float(b.get("reach_km") or 5), b.get("by")))
+                area = store.add_area(db(), name, float(b["lat"]), float(b["lng"]), float(b.get("reach_km") or 5), b.get("by"))
+                store.log(db(), "area_added", name=name)
+                return self.send(200, area)
             m = re.fullmatch(r"/api/areas/(\d+)/delete", u.path)
             if m:
+                gone = [x["name"] for x in store.areas(db()) if x["id"] == int(m.group(1))]
                 store.delete_area(db(), int(m.group(1)))
+                if gone:
+                    store.log(db(), "area_removed", name=gone[0])
                 return self.send(200, {"deleted": int(m.group(1))})
             return self.fail(404, "That address is empty.")
         except ValueError as exc:

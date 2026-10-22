@@ -7,6 +7,7 @@
 //   POST /login    {proof}         -> {ok, token, account}    proof scoped "wheel-account", message = the nonce
 //   GET  /session?token=           -> {ok, account}           hub only (X-Wheel-Admin)
 //   POST /checkin  {event}         -> {ok, code, closes}      needs the X-Wheel-Admin token
+//                  {event, rotating: true} -> {ok, secret, closes, rotate}  a code that changes every minute
 // Logs nothing about requests: no IPs, no user agents, no paths.
 import http from "node:http"
 import { Wheel } from "./core.mjs"
@@ -64,7 +65,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "POST" && u.pathname === "/checkin") {
       if (!ADMIN || req.headers["x-wheel-admin"] !== ADMIN) return send(res, 403, { ok: false, why: "admin" })
-      const r = wheel.openCheckin((await body(req)).event)
+      const b = await body(req)
+      const r = wheel.openCheckin(b.event, b.rotating === true)
       return send(res, r.ok ? 200 : 400, r)
     }
     return send(res, 404, { ok: false, why: "route" })

@@ -29,6 +29,28 @@ function applyComfort() {
 }
 applyComfort();
 
+/* Simple and Full (his ask 2026-10-22: "there is a lot of info on the screen for new users to navigate, a simple/complex
+   mode/view is probably on call"). Simple puts the list first, with the filters behind one button and the tools in a
+   menu; Full shows everything at once. A first visit on a phone-sized screen starts Simple; a choice is kept here. */
+const UI_KEY = "wheel.ui";
+let UI = (() => { try { return localStorage.getItem(UI_KEY); } catch { return null; } })() || (matchMedia("(max-width: 700px)").matches ? "simple" : "full");
+document.documentElement.dataset.ui = UI;
+function setUI(v, keep = true) {
+  UI = v;
+  document.documentElement.dataset.ui = v;
+  if (keep) try { localStorage.setItem(UI_KEY, v); } catch {}
+  if (v === "full") setMenu(false);
+  $$("[data-ui]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.ui === v)));
+  $$("input[data-uiradio]").forEach((r) => (r.checked = r.value === v));
+}
+function setMenu(open) {
+  open = open && UI === "simple";
+  document.documentElement.classList.toggle("menu-open", open);
+  $("#menu-btn").setAttribute("aria-expanded", String(open));
+  $("#menu-panel").hidden = !open;
+  if (open) $("#menu-panel a")?.focus();
+}
+
 /* Favourite kinds (his ask 2026-10-20: "personalisation of tags, as in a favorite system"). Kept in this browser only:
    The Wheel never learns what anyone favours. Starred kinds come first, and "My kinds" shows only listings with them. */
 const FAVS_KEY = "wheel.favkinds";
@@ -41,20 +63,20 @@ const MODES = {
     look: "day", title: "Day",
     lede: "Shifts that need hands, workshops and skillshares. Help where you can.",
     search: "Search: cooking, set-up, Orewa…",
-    ranges: [["week", "Next 7 days"], ["weekend", "This weekend"], ["all", "Everything coming up"]],
+    ranges: [["week", "Next 7 days", "7 days"], ["weekend", "This weekend", "Weekend"], ["all", "Everything coming up", "All"]],
     facetLabel: "Help with",
   },
   night: {
     look: "night", title: "Night",
     lede: "Gigs, socials and gatherings. Where to go out.",
     search: "Search: kava, poetry, Orewa…",
-    ranges: [["tonight", "Tonight"], ["weekend", "This weekend"], ["week", "Next 7 days"], ["all", "Everything coming up"]],
+    ranges: [["tonight", "Tonight", "Tonight"], ["weekend", "This weekend", "Weekend"], ["week", "Next 7 days", "7 days"], ["all", "Everything coming up", "All"]],
   },
   recovery: {
     look: "recovery", title: "Recovery",
     lede: "Retreats, rest and restoring. Time to come back to yourself.",
     search: "Search: breathwork, retreat, sound bath…",
-    ranges: [["week", "Next 7 days"], ["weekend", "This weekend"], ["all", "Everything coming up"]],
+    ranges: [["week", "Next 7 days", "7 days"], ["weekend", "This weekend", "Weekend"], ["all", "Everything coming up", "All"]],
     facetLabel: "How long",
   },
 };
@@ -146,6 +168,7 @@ async function loadMe() {
   box.innerHTML = `<div class="card"><h2>You're in</h2>
     <p>${esc(crowdLine(st.size))}</p>${loginNote}${standing}
     <div id="me-profile"></div>
+    <div id="me-mine"></div>
     <h2 class="sub">Your key</h2>
     <p class="lede">The key lives on this device alone. Keep a copy somewhere only you can reach, such as your password manager, so a new phone can carry on as you. Your key is you: anyone holding it is you on The Wheel. Giving it away gives away you, and whoever hands you a key still holds it.</p>
     <div class="keyrow"><input id="my-key" type="password" readonly value="${esc(W.key() || "")}" aria-label="Your key">
@@ -158,6 +181,7 @@ async function loadMe() {
     <div class="actions"><button type="button" class="quiet" data-copykey="1">Copy my key</button>
     <button type="button" class="danger" data-signout="1">Sign out of this browser</button></div>
     <p class="status" id="signout-status" role="status"></p></div>`;
+  if (me) loadMine().catch(() => {});
   if (me) loadProfileEditor(me).catch((e) => { const b = $("#me-profile"); if (b) b.innerHTML = `<p class="status err">${esc(e.message)}</p>`; });
 }
 
@@ -284,13 +308,24 @@ async function loadEvents() {
 
 function inMode(ev) { return (ev.modes || []).includes(state.mode); }
 
-function renderMode() {
+function renderHead() {
   const m = MODES[state.mode];
   $("#h-mode").textContent = m.title;
   $("#mode-lede").textContent = m.lede;
   $("#q").placeholder = m.search;
+}
+
+// Simple keeps the filters behind one button; its label counts the ones in use
+function filterLabel() {
+  const n = [state.kind, state.area, state.facet, state.favOnly, state.range === "date", $("#archive").checked, !$("#unreviewed").checked].filter(Boolean).length;
+  $("#filter-btn").textContent = n ? `Filters · ${n} on` : "Filters";
+}
+
+function renderMode() {
+  const m = MODES[state.mode];
+  renderHead();
   if (state.range !== "date" && !m.ranges.some(([k]) => k === state.range)) state.range = "all";
-  $("#ranges").innerHTML = m.ranges.map(([k, label]) => `<button type="button" data-range="${k}" class="${state.range === k ? "on" : ""}">${label}</button>`).join("") +
+  $("#ranges").innerHTML = m.ranges.map(([k, label, short]) => `<button type="button" data-range="${k}" class="${state.range === k ? "on" : ""}"><span class="long">${label}</span><span class="short">${short}</span></button>`).join("") +
     `<label class="pickday${state.range === "date" ? " on" : ""}">On a date <input type="date" id="pickday" min="${state.today}" value="${state.range === "date" ? state.date : ""}"></label>` +
     (state.range === "date" ? `<button type="button" data-onlymode="1" class="${state.dateOnlyMode ? "on" : ""}" aria-pressed="${state.dateOnlyMode}">Only ${m.title}</button>` : "");
   $("#mode-lede").textContent = allModes() ? `Everything on ${fmtShort(state.date)}: Day, Night and Recovery together.` : m.lede;
@@ -298,6 +333,7 @@ function renderMode() {
   renderChips();
   renderList();
   renderFollow();
+  filterLabel();
 }
 
 /* the site's terms grid: three figures for the mode, read at a glance */
@@ -410,6 +446,7 @@ function eventRow(ev, i = 0) {
     <div class="ev-main">
       <button type="button" class="ev-name" aria-expanded="false" data-open="${ev.id}">${esc(ev.name)}</button>
       <div class="meta"><span>${esc(when(ev))}</span>${where ? `<span>${esc(where)}</span>` : ""}${ev.price ? `<span>${esc(ev.price)}</span>` : ""}</div>
+      ${ev.org_note ? `<div class="org-note"><b>Update from the organiser, ${esc(fmtShort(ev.org_note.day))}:</b> ${esc(ev.org_note.text)}</div>` : ""}
       ${shiftsTable(ev)}
       ${(ev.requirements || []).length ? `<div class="line">Asks for: ${esc(ev.requirements.join(", "))}</div>` : ""}
       ${volunteer && src && !ev.past ? `<div><a class="signup" href="${esc(src)}" target="_blank" rel="noopener">Sign up with the organiser</a></div>` : ""}
@@ -418,7 +455,8 @@ function eventRow(ev, i = 0) {
       <div class="inline-card" hidden></div>
       <div class="more" hidden>
         ${ev.description ? `<p>${esc(ev.description)}</p>` : ""}
-        ${ev.organiser ? `<div>Organised by ${esc(ev.organiser)}</div>` : ""}
+        ${ev.claimed_by ? `<div>Kept up to date by <a href="#o/${esc(ev.claimed_by.id)}">${esc(ev.claimed_by.name)}</a>, a proven organiser</div>`
+          : ev.organiser ? `<div>Organised by ${esc(ev.organiser)}</div>` : ""}
         ${whereFrom(ev)}
         <div class="actions ev-tools"><button type="button" class="quiet" data-share="${ev.id}">Share</button>
           <a class="quiet" href="${API}/api/ics/${ev.id}.ics" rel="nofollow">Add to calendar</a>
@@ -484,7 +522,10 @@ function renderFollow() {
     <div class="actions"><a class="quiet" href="${esc(cal.replace(/^https?:/, "webcal:"))}">Subscribe in my calendar</a>
       <button type="button" class="quiet" data-copylink="${esc(cal)}">Copy the calendar link</button>
       <a class="quiet" href="${esc(rss)}">RSS feed</a></div>
-    <p class="hint">Google Calendar on a computer: Other calendars, then From URL, and paste the calendar link.</p>`;
+    <p class="hint">Google Calendar on a computer: Other calendars, then From URL, and paste the calendar link.</p>
+    <h3 class="follow-h">Weekly</h3>
+    <p class="hint">Every Monday, the week ahead as one item in your feed reader.</p>
+    <div class="actions"><a class="quiet" href="${esc(`${BASE}/api/digest.xml`)}">Weekly RSS</a></div>`;
 }
 
 function grouped(list) {
@@ -743,6 +784,7 @@ function reviewCard(ev) {
       ${flyerImg(ev)}
       ${!ev.website && !src && !ev.chat_platform ? `<div class="warn">No link yet: it goes out marked "no page online".${canFix ? " Add the organiser's page under Fix details if you know it." : ""}</div>` : ""}
       ${notes ? `<div class="warn">${esc(notes)}</div>` : ""}${dupWarn(ev)}
+      ${ev.appeal_round != null && ev.appeal_round === ev.round ? `<div class="warn"><b>Turned down, back on appeal.</b> Reviewers who saw it before leave it to others.${ev.appeal_note ? ` The member who added it says: "${esc(ev.appeal_note)}"` : ""}</div>` : ""}
       ${(ev.reports || []).length ? `<div class="warn"><b>${ev.reopened ? "Reported, so it's back in review." : "Reported."}</b> ${ev.reports.map((r) => esc(r.reason) + (r.note ? `: "${esc(r.note)}"` : "")).join("; ")}</div>` : ""}
       <div class="source">${esc(sure)}${ev.my_verdict ? ` You said: ${ev.my_verdict === "approve" ? "right" : "wrong"}.` : ""}</div>
       ${ev.mine ? `<p class="hint">You added this one, so someone else checks it.</p>` : `<div class="actions"><button type="button" class="primary" data-act="approve">It's right</button>
@@ -800,7 +842,9 @@ async function inlineReview(id, btn) {
 async function loadReview() {
   const { events, me } = await api("/api/review");
   reviewMe = me;
-  $("#pending-count").textContent = events.filter(toCheck).length || "";
+  loadAppeals().catch(() => {});
+  loadOrgWaiting().catch(() => {});
+  setCount(events.filter(toCheck).length);
   reviewQueue = events;
   renderReview();
 }
@@ -837,8 +881,10 @@ async function useSuggestion(box, action) {
   } catch (err) { toast(err.message); }
 }
 
+function setCount(n) { $$("#pending-count, .menu-count").forEach((el) => (el.textContent = n || "")); }
+
 async function refreshCount() {
-  try { const { events } = await api("/api/review"); $("#pending-count").textContent = events.filter(toCheck).length || ""; } catch (e) { /* the count waits for the next load */ }
+  try { const { events } = await api("/api/review"); setCount(events.filter(toCheck).length); } catch (e) { /* the count waits for the next load */ }
 }
 
 /* ---------- areas ---------- */
@@ -934,6 +980,7 @@ function closeGuide() {
   if (guideFrom && guideFrom.focus) guideFrom.focus();
 }
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && document.documentElement.classList.contains("menu-open")) { setMenu(false); $("#menu-btn").focus(); }
   if (e.key === "Escape" && !$("#guide").hidden) closeGuide();
   if (e.key === "Escape" && $("#more-menu").open) { $("#more-menu").open = false; $("#more-menu summary").focus(); }
 });
@@ -965,9 +1012,12 @@ function route() {
   $("#view-mode").hidden = !isMode;
   $$(".view").forEach((v) => { if (v.id !== "view-mode") v.hidden = v.id !== `view-${view}`; });
   $$(".top nav a").forEach((a) => a.classList.toggle("on", a.dataset.view === view || (a.dataset.view === "events" && isMode)));
-  $("#more-menu").classList.toggle("on", ["roadmap", "rep", "chats", "comfort"].includes(view));
+  $$(".menu-events").forEach((a) => a.setAttribute("href", `#${state.mode}`));
+  setMenu(false);
+  $("#more-menu").classList.toggle("on", ["roadmap", "rep", "chats", "comfort", "log", "org"].includes(view));
   $("#more-menu").open = false;
   $("#events-link").setAttribute("href", `#${state.mode}`);
+  if (isMode) renderHead();
   if (isMode) loadEvents().catch((e) => ($("#list").innerHTML = `<p class="empty">${esc(e.message)}</p>`));
   if (view === "review") loadReview().catch((e) => toast(e.message));
   if (view === "areas") { loadAreas().catch((e) => toast(e.message)); loadKinds(); }
@@ -975,13 +1025,18 @@ function route() {
   if (view === "p") loadProfile(location.hash.slice(1).split("/")[1]).catch((e) => ($("#profile-body").innerHTML = `<p class="status err">${esc(e.message)}</p>`));
   if (view === "support") loadSupport().catch((e) => ($("#support-buy").innerHTML = `<p class="status err">${esc(e.message)}</p>`));
   if (view === "comfort") { renderComfort(); renderInstall(); }
+  if (view === "board") loadBoard().catch((e) => ($("#board").innerHTML = `<p class="status err">${esc(e.message)}</p>`));
+  if (view === "s") loadSeries(location.hash.slice(1).split("/")[1]).catch((e) => ($("#series").innerHTML = `<p class="status err">${esc(e.message)}</p>`));
+  if (view === "org") { (state.events.length ? Promise.resolve() : api("/api/events?unreviewed=1").then((d) => (state.events = d.events))).then(loadOrg).catch((e) => ($("#org-body").innerHTML = `<p class="status err">${esc(e.message)}</p>`)); }
+  if (view === "o") loadPublicOrg(location.hash.slice(1).split("/")[1]);
+  if (view === "log") loadLog().catch((e) => ($("#modlog").innerHTML = `<li class="status err">${esc(e.message)}</li>`));
   if (view === "me") loadMe().catch((e) => ($("#me-body").innerHTML = `<p class="status err">${esc(e.message)}</p>`));
 }
 
 document.addEventListener("click", (e) => {
   const t = e.target.closest("button, a");
   if (!t) return;
-  if (t.dataset.guide) { e.preventDefault(); openGuide(); return; }
+  if (t.dataset.guide) { e.preventDefault(); setMenu(false); openGuide(); return; }
   if (t.dataset.kmerge) kindsAct({ action: "merge", merge: t.dataset.kmerge, keep: t.dataset.kkeep }, `Merged into ${t.dataset.kkeep}`);
   if (t.dataset.kapart) kindsAct({ action: "keep", merge: t.dataset.kapart, keep: t.dataset.kkeep }, "Kept apart");
   if (t.dataset.kundo) kindsAct({ action: "undo", merge: t.dataset.kundo }, "Merge undone");
@@ -996,10 +1051,10 @@ document.addEventListener("click", (e) => {
   if (t.dataset.onlymode) { state.dateOnlyMode = !state.dateOnlyMode; renderMode(); }
   if (t.dataset.morekinds) { state.allKinds = !state.allKinds; renderChips(); }
   if (t.dataset.fav) { const k = t.dataset.fav; favs.has(k) ? favs.delete(k) : favs.add(k); saveFavs(); if (!favs.size) state.favOnly = false; renderChips(); renderList(); return; }
-  if (t.dataset.favfilter) { state.favOnly = !state.favOnly; renderChips(); renderList(); return; }
-  if (t.dataset.kind) { state.kind = state.kind === t.dataset.kind ? null : t.dataset.kind; renderChips(); renderList(); }
-  if (t.dataset.area) { state.area = state.area === t.dataset.area ? null : t.dataset.area; renderChips(); renderList(); }
-  if (t.dataset.facet) { state.facet = state.facet === t.dataset.facet ? null : t.dataset.facet; renderChips(); renderList(); }
+  if (t.dataset.favfilter) { state.favOnly = !state.favOnly; renderChips(); renderList(); filterLabel(); return; }
+  if (t.dataset.kind) { state.kind = state.kind === t.dataset.kind ? null : t.dataset.kind; renderChips(); renderList(); filterLabel(); }
+  if (t.dataset.area) { state.area = state.area === t.dataset.area ? null : t.dataset.area; renderChips(); renderList(); filterLabel(); }
+  if (t.dataset.facet) { state.facet = state.facet === t.dataset.facet ? null : t.dataset.facet; renderChips(); renderList(); filterLabel(); }
   if (t.dataset.open) {
     const more = $(".more", t.closest(".ev-main"));
     more.hidden = !more.hidden;
@@ -1025,6 +1080,26 @@ document.addEventListener("click", (e) => {
   if (t.dataset.copyxmr) navigator.clipboard?.writeText($("#xmr").value).then(() => toast("Address copied")).catch(() => $("#xmr").select());
   if (t.dataset.opencheckin) openCheckin(t);
   if (t.dataset.share) shareListing(t);
+  if (t.dataset.ui) setUI(t.dataset.ui);
+  if (t.dataset.orgnew) orgNew(t);
+  if (t.dataset.orgsignin) { const k = $("#org-key-in").value.trim(); if (k.length < 20) { $(".status", t.closest(".card")).textContent = "An organiser key is about 43 letters and numbers."; } else { try { localStorage.setItem(ORG_KEY, k); } catch {} loadOrg(); } }
+  if (t.dataset.orgsignout) { if (t.dataset.sure) { try { localStorage.removeItem(ORG_KEY); } catch {} loadOrg(); } else { t.dataset.sure = "1"; t.textContent = "Yes, sign out (copied the key?)"; } }
+  if (t.dataset.orgcheck) orgCheck(t);
+  if (t.dataset.orgask) orgApi("/api/org/ask", {}).then(() => { toast("A steward has your request"); loadOrg(); }).catch((err) => toast(err.message));
+  if (t.dataset.orgclaim) orgClaim(t);
+  if (t.dataset.orgedit) { const ed = $(".org-edit", t.closest(".org-claim")); ed.hidden = !ed.hidden; t.setAttribute("aria-expanded", String(!ed.hidden)); }
+  if (t.dataset.orgsave) orgSave(t);
+  if (t.dataset.orgdoor) openDoor(t);
+  if (t.dataset.doorclose) closeDoor();
+  if (t.dataset.copyfield2) navigator.clipboard?.writeText(t.dataset.copyfield2).then(() => toast("Copied")).catch(() => toast(t.dataset.copyfield2));
+  if (t.dataset.orgvouch) api(`/api/org/${t.dataset.orgvouch}/vouch`, {}).then(() => { toast("Vouched"); loadOrgWaiting(); }).catch((err) => toast(err.message));
+  if (t.dataset.orgclaimans) api(`/api/org/claims/${t.dataset.lid}`, { action: t.dataset.orgclaimans }).then(() => { toast(t.dataset.orgclaimans === "grant" ? "Given" : "Turned down"); loadOrgWaiting(); }).catch((err) => toast(err.message));
+  if (t.id === "modlog-more") loadLog(true).catch((err) => toast(err.message));
+  if (t.dataset.appeal) appealListing(t);
+  if (t.dataset.appealrank) appealRank(t);
+  if (t.dataset.rankanswer) answerAppeal(t);
+  if (t.id === "menu-btn") setMenu(!document.documentElement.classList.contains("menu-open"));
+  if (t.id === "filter-btn") { const v = $("#view-mode"); v.classList.toggle("filters-open"); t.setAttribute("aria-expanded", String(v.classList.contains("filters-open"))); }
   if (t.dataset.report) { const r = $(".report", t.closest(".more")); r.hidden = !r.hidden; t.setAttribute("aria-expanded", String(!r.hidden)); }
   if (t.dataset.sendreport) sendReport(t);
   if (t.dataset.copylink) navigator.clipboard?.writeText(t.dataset.copylink).then(() => toast("Link copied")).catch(() => toast(t.dataset.copylink));
@@ -1039,8 +1114,9 @@ document.addEventListener("change", (e) => {
 
 $("#q").addEventListener("input", renderList);
 $("#rq").addEventListener("input", renderReview);
+document.addEventListener("input", (e) => { if (e.target.id === "org-find") orgFind(); });
 $("#unreviewed").addEventListener("change", loadEvents);
-$("#archive").addEventListener("change", renderList);
+$("#archive").addEventListener("change", () => { renderList(); filterLabel(); });
 $("#add-form").addEventListener("submit", readDeposit);
 $("#add-file").addEventListener("change", (e) => showFlyer(e.target.files[0]));
 const drop = $("#drop");
@@ -1265,9 +1341,273 @@ document.addEventListener("change", (e) => {
   }
 });
 
+/* ---------- the community board and pages for regular events (2026-10-22) ---------- */
+const placeOf = (ev) => [ev.location_name, ev.location_locality && !(ev.location_name || "").includes(ev.location_locality) ? ev.location_locality : null].filter(Boolean).join(", ");
+const isRegular = (ev) => !!ev.recurrence;
+
+async function loadBoard() {
+  const { events, today } = await api("/api/events?unreviewed=1");
+  const seen = new Set();  // the same name at the same place once, the checked copy first
+  const regular = events.filter(isRegular).sort((a, b) => (b.review?.state === "approved") - (a.review?.state === "approved"))
+    .filter((e) => { const k = `${e.name.trim().toLowerCase()}|${placeOf(e).toLowerCase()}`; return !seen.has(k) && seen.add(k); })
+    .sort((a, b) => on(a).localeCompare(on(b)));
+  const groups = {};
+  events.filter((e) => !isRegular(e) && !e.past && e.organiser).forEach((e) => {
+    const k = e.organiser.trim().toLowerCase();
+    (groups[k] = groups[k] || { name: e.organiser.trim(), events: [] }).events.push(e);
+  });
+  const orgs = Object.values(groups).filter((g) => g.events.length > 1).sort((a, b) => b.events.length - a.events.length);
+  const regRow = (ev) => `<li class="board-row"><a class="board-name" href="#s/${ev.id}">${esc(ev.name)}</a>
+    <span class="board-meta">${esc(ev.recurrence.slice(0, 60))}${placeOf(ev) ? ` · ${esc(placeOf(ev))}` : ""}</span>
+    <span class="board-next">${on(ev) < today && onEnd(ev) >= today ? `On now, until ${esc(fmtShort(onEnd(ev)))}`
+      : on(ev) >= today ? `Next: ${esc(fmtShort(on(ev)))}` : "Next date: check the organiser's page"}</span></li>`;
+  const orgRow = (g) => `<li class="board-row"><span class="board-name">${esc(g.name)}</span>
+    <span class="board-meta">${g.events.length} coming up</span>
+    <ul class="board-events">${g.events.sort((a, b) => on(a).localeCompare(on(b))).map((e) => `<li><a href="#l/${e.id}">${esc(e.name)}</a>, ${esc(fmtShort(on(e)))}</li>`).join("")}</ul></li>`;
+  $("#board").innerHTML = `<h2>Meets regularly</h2>${regular.length ? `<ul class="board">${regular.map(regRow).join("")}</ul>` : `<p class="hint">A listing that repeats shows here. Add one under Add a listing.</p>`}
+    <h2>Organisers with more coming up</h2>${orgs.length ? `<ul class="board">${orgs.map(orgRow).join("")}</ul>` : `<p class="hint">An organiser with two or more listings ahead shows here.</p>`}`;
+}
+
+async function loadSeries(id) {
+  const box = $("#series");
+  const { events } = await api("/api/events?unreviewed=1");
+  const ev = events.find((e) => e.id === id);
+  if (!ev) { box.innerHTML = `<h1>Gone</h1><p class="lede">That listing has gone from The Wheel. <a href="#board">See the communities</a>.</p>`; return; }
+  const dates = ev.repeats_on || [on(ev)];
+  box.innerHTML = `<h1>${esc(ev.name)}</h1>
+    <p class="lede">${ev.recurrence ? `${esc(ev.recurrence)}. ` : ""}${esc([when(ev), placeOf(ev), ev.price].filter(Boolean).join(" · "))}</p>
+    <div class="actions"><a class="primary" href="${API}/api/ics/${ev.id}.ics?all=1" rel="nofollow">Add every date to my calendar</a>
+      <button type="button" class="quiet" data-share="${ev.id}">Share</button><a class="quiet" href="#l/${ev.id}">See it in the list</a></div>
+    <div class="share-out"></div>
+    <h2>Coming up</h2>
+    <ul class="series-dates">${dates.map((day) => `<li>${esc(fmtShort(day))}${ev.start_time ? `, ${esc(ev.start_time)}` : ""}</li>`).join("")}</ul>
+    ${ev.description ? `<h2>About it</h2><p class="series-about">${esc(ev.description)}</p>` : ""}
+    ${ev.organiser ? `<p>Organised by ${esc(ev.organiser)}</p>` : ""}
+    <div class="series-links">${whereFrom(ev)}</div>`;
+  if (!state.events.some((e) => e.id === ev.id)) state.events = [...state.events, ev];  // Share finds it here
+}
+
+/* ---------- organiser accounts (his ruling 2026-10-23: "A, and yes to organiser accounts") ----------
+   An organiser account is its own key with a public name. It goes only with organiser calls (orgApi), never beside
+   a member's login, so the two stay unlinked even on one device. */
+const ORG_KEY = "wheel.organiser";
+const orgKey = () => { try { return localStorage.getItem(ORG_KEY); } catch { return null; } };
+async function orgApi(path, body) {
+  const headers = { "X-Wheel-Organiser": orgKey() || "" };
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const res = await fetch(API + path, body === undefined ? { headers } : { method: "POST", headers, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({ error: "The Wheel sent back something unreadable." }));
+  if (!res.ok) throw new Error(data.error || data.why || `The Wheel answered ${res.status}.`);
+  return data;
+}
+const ORG_EDIT = [["start_date", "Date (2026-10-24)"], ["start_time", "Starts (19:30)"], ["end_time", "Ends at"], ["location_name", "Place"],
+  ["location_locality", "Town or suburb"], ["price", "Price"], ["tickets_url", "Tickets (a link)"], ["recurrence", "Repeats"]];
+
+async function loadOrg() {
+  const box = $("#org-body");
+  if (!orgKey()) {
+    box.innerHTML = `<div class="me-doors">
+      <div class="card"><h2>New organiser account</h2>
+        <p class="lede">Your organiser name shows on the listings you keep. Your own pen name stays separate from it, on its own key.</p>
+        <label for="org-name">Organiser name</label><input id="org-name" maxlength="60" autocomplete="organization">
+        <label for="org-page">Your page (https://…)</label><input id="org-page" placeholder="https://www.facebook.com/yourgroup" autocomplete="url">
+        <p class="hint">Your site, or your page on Facebook or Instagram. You prove it's yours by putting a short code on it.</p>
+        <button type="button" class="primary" data-orgnew="1">Make the account</button><p class="status" role="status"></p></div>
+      <div class="card"><h2>Have an organiser key?</h2>
+        <label for="org-key-in">Organiser key</label><input id="org-key-in" type="password" autocomplete="off" spellcheck="false">
+        <button type="button" class="quiet" data-orgsignin="1">Sign in as the organiser</button><p class="status" role="status"></p></div></div>`;
+    return;
+  }
+  let r;
+  try { r = await orgApi("/api/org/me"); } catch (e) { box.innerHTML = `<p class="status err">${esc(e.message)}</p><button type="button" class="quiet" data-orgsignout="1">Forget this organiser key</button>`; return; }
+  const o = r.organiser;
+  box.innerHTML = `<div class="card"><h2>${esc(o.name)}</h2>
+    <p class="hint">Your page: <a href="${esc(o.page)}" target="_blank" rel="noopener">${esc(o.page)}</a>${o.proven ? ` · <a href="#o/${o.id}">Your public page on The Wheel</a>` : ""}</p>
+    ${o.proven ? `<p>√ Proven${o.proven_by === "steward" ? " by a steward" : " by your page"}. You can claim listings.</p>`
+      : `<h2 class="sub">Prove your page</h2><p>Put this code anywhere on your page (the about text, a post, a pinned comment), then check:</p>
+         <div class="keyrow"><input readonly value="${esc(o.code)}" aria-label="Your code"><button type="button" class="quiet" data-copyfield2="${esc(o.code)}">Copy</button></div>
+         <div class="actions"><button type="button" class="primary" data-orgcheck="1">Check my page</button>
+         ${o.asked ? `<span class="hint">A steward has your request.</span>` : `<button type="button" class="quiet" data-orgask="1">Ask a steward instead</button>`}</div>
+         <p class="hint">Facebook and Instagram often turn outside readers away. When the check comes back empty-handed, ask a steward: they confirm it another way, often in person.</p>
+         <p class="status" id="org-check-status" role="status"></p>`}
+    <h2 class="sub">Your organiser key</h2>
+    <p class="lede">This key is the account. Save a copy in your password manager; anyone holding it acts as ${esc(o.name)}.</p>
+    <div class="keyrow"><input id="org-key" type="password" readonly value="${esc(orgKey())}" aria-label="Your organiser key"><button type="button" class="quiet" data-copyfield2="${esc(orgKey())}">Copy</button>
+      <button type="button" class="quiet" data-orgsignout="1">Sign out of the organiser account</button></div></div>
+    ${o.proven ? `<div class="card"><h2>Your listings</h2>${r.claims.length ? r.claims.map(orgClaimCard).join("") : `<p class="lede">Claim the listings you run, below.</p>`}</div>
+    <div class="card"><h2>Claim a listing</h2><p class="lede">A listing that links to your page is yours straight away. Others go to a steward.</p>
+      <label for="org-find">Find it</label><input id="org-find" type="search" placeholder="Name, place or date" autocomplete="off">
+      <ul class="org-found" id="org-found"></ul></div>` : ""}`;
+  ORG_CLAIMS = r.claims;
+}
+let ORG_CLAIMS = [], DOOR = null;
+function orgClaimCard(c) {
+  const l = c.listing;
+  if (c.state !== "claimed") return `<div class="org-claim"><b>${esc(c.name)}</b>, ${esc(fmtShort(c.date))}: <span class="hint">waiting for a steward</span></div>`;
+  return `<div class="org-claim" data-lid="${c.id}"><b>${esc(c.name)}</b>, ${esc(fmtShort(c.date))}
+    <div class="actions"><button type="button" class="primary" data-orgdoor="${c.id}">Open check-in</button>
+      <button type="button" class="quiet" data-orgedit="1" aria-expanded="false">Update it</button></div>
+    <div class="org-edit" hidden>
+      <label for="st-${c.id}">Status</label><select id="st-${c.id}" data-of="status">${["confirmed", "tentative", "postponed", "cancelled"].map((v) =>
+        `<option value="${v}"${(l.status || "confirmed") === v ? " selected" : ""}>${v}</option>`).join("")}</select>
+      <div class="fields">${ORG_EDIT.map(([k, label]) => `<div><label for="of-${c.id}-${k}">${label}</label><input id="of-${c.id}-${k}" data-of="${k}" value="${esc(l[k] ?? "")}"></div>`).join("")}</div>
+      <label for="on-${c.id}">An update for everyone (moved, sold out, bring a plate…)</label><textarea id="on-${c.id}" data-of="note" rows="2" maxlength="280">${esc(l.org_note?.text || "")}</textarea>
+      <button type="button" class="quiet" data-orgsave="${c.id}">Save the update</button><p class="status" role="status"></p></div></div>`;
+}
+
+const ROT = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";  // the member service's own alphabet (zk/core.mjs)
+async function rotatingCode(secretHex, id, minute) {
+  const raw = new Uint8Array(secretHex.match(/../g).map((h) => parseInt(h, 16)));
+  const key = await crypto.subtle.importKey("raw", raw, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${id}:${minute}`)));
+  return Array.from(mac.slice(0, 6), (b) => ROT[b % ROT.length]).join("");
+}
+async function openDoor(btn) {
+  const id = btn.dataset.orgdoor, card = btn.closest(".org-claim");
+  btn.disabled = true;
+  try {
+    const r = await orgApi(`/api/org/checkin/${id}`, {});
+    DOOR = { id, name: $("b", card).textContent, secret: r.secret, closes: r.closes, rotate: r.rotate || 60000 };
+    showDoor();
+  } catch (e) { $(".status", card)?.replaceChildren(document.createTextNode(e.message)); toast(e.message); }
+  btn.disabled = false;
+}
+async function showDoor() {
+  clearTimeout(showDoor.t);
+  if (!DOOR) return;
+  let el = $("#doorscreen");
+  if (!el) { document.body.insertAdjacentHTML("beforeend", `<div id="doorscreen" class="doorscreen" role="dialog" aria-modal="true" aria-labelledby="door-h"></div>`); el = $("#doorscreen"); }
+  const now = Date.now();
+  if (now > DOOR.closes) { el.innerHTML = `<div class="door-panel"><h2 id="door-h">Check-in closed</h2><button type="button" class="primary" data-doorclose="1">Close</button></div>`; return; }
+  const minute = Math.floor(now / DOOR.rotate), left = Math.ceil(((minute + 1) * DOOR.rotate - now) / 1000);
+  const code = await rotatingCode(DOOR.secret, DOOR.id, minute);
+  el.innerHTML = `<div class="door-panel"><p class="hint">${esc(DOOR.name)}</p><h2 id="door-h">Door code</h2>
+    <div class="doorcode">${esc(code)}</div><p>Changes in ${left} s. A code works for about three minutes, so one passed around outside soon stops.</p>
+    <p class="hint">Members type it into the listing's "I'm here". Open until ${esc(new Date(DOOR.closes).toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" }))}.</p>
+    <button type="button" class="quiet" data-doorclose="1">Hide the code</button></div>`;
+  showDoor.t = setTimeout(showDoor, 1000);
+  try { if (!showDoor.lock && navigator.wakeLock) showDoor.lock = await navigator.wakeLock.request("screen"); } catch {}
+}
+function closeDoor() { clearTimeout(showDoor.t); $("#doorscreen")?.remove(); try { showDoor.lock?.release(); } catch {} showDoor.lock = null; DOOR = null; }
+
+async function orgNew(btn) {
+  const out = $(".status", btn.closest(".card"));
+  btn.disabled = true;
+  try {
+    const r = await orgApi("/api/org/new", { name: $("#org-name").value, page: $("#org-page").value });
+    try { localStorage.setItem(ORG_KEY, r.key); } catch {}
+    toast("Organiser account made"); loadOrg();
+  } catch (e) { out.textContent = e.message; }
+  btn.disabled = false;
+}
+async function orgCheck(btn) {
+  const out = $("#org-check-status");
+  btn.disabled = true; out.textContent = "Reading your page…";
+  try {
+    const r = await orgApi("/api/org/check", {});
+    if (r.proven) { toast("Proven"); loadOrg(); return; }
+    out.textContent = r.why === "fetch" ? "Your page turned The Wheel away, as Facebook and Instagram often do. Ask a steward instead." : "The check read your page and found it without the code so far. Check it's saved and public, then try again.";
+  } catch (e) { out.textContent = e.message; }
+  btn.disabled = false;
+}
+function orgFind() {
+  const q = ($("#org-find")?.value || "").trim().toLowerCase(), out = $("#org-found");
+  if (!out) return;
+  if (q.length < 2) { out.innerHTML = ""; return; }
+  const mine = new Set(ORG_CLAIMS.map((c) => c.id));
+  const hits = state.events.filter((e) => !mine.has(e.id) && !e.claimed_by && [e.name, e.location_name, e.start_date, e.organiser].join(" ").toLowerCase().includes(q)).slice(0, 8);
+  out.innerHTML = hits.map((e) => `<li><span><b>${esc(e.name)}</b>, ${esc(fmtShort(on(e)))}</span> <button type="button" class="quiet" data-orgclaim="${e.id}">Claim</button></li>`).join("") || `<li class="hint">Add it under Add a listing first, then claim it here.</li>`;
+}
+async function orgClaim(btn) {
+  btn.disabled = true;
+  try { const r = await orgApi(`/api/org/claim/${btn.dataset.orgclaim}`, {}); toast(r.state === "claimed" ? "Claimed" : "Sent to a steward"); loadOrg(); }
+  catch (e) { toast(e.message); btn.disabled = false; }
+}
+async function orgSave(btn) {
+  const box = btn.closest(".org-edit"), out = $(".status", box), body = {};
+  $$("[data-of]", box).forEach((el) => (body[el.dataset.of] = el.value));
+  try { const r = await orgApi(`/api/org/update/${btn.dataset.orgsave}`, body); out.textContent = r.changed.length ? "Saved. It shows on the listing now." : "Already up to date."; }
+  catch (e) { out.textContent = e.message; }
+}
+async function loadPublicOrg(id) {
+  const box = $("#o-body");
+  try {
+    const r = await api(`/api/o/${id}`);
+    box.innerHTML = `<h1>${esc(r.organiser.name)}</h1><p class="lede">A proven organiser on The Wheel${r.organiser.proven_by === "steward" ? ", vouched for by a steward" : ", proven by its own page"}. <a href="${esc(r.organiser.page)}" target="_blank" rel="noopener">Their page</a></p>
+      <h2>Their listings</h2>${r.listings.length ? `<ul class="board">${r.listings.map((l) => `<li class="board-row"><a class="board-name" href="#l/${l.id}">${esc(l.name)}</a><span class="board-meta">${esc(fmtShort(l.date))}${l.past ? ", already happened" : ""}</span></li>`).join("")}</ul>` : `<p class="hint">Their listings show here once they claim them.</p>`}`;
+  } catch (e) { box.innerHTML = `<h1>Organiser</h1><p class="status err">${esc(e.message)}</p>`; }
+}
+async function loadOrgWaiting() {
+  const box = $("#rv-orgs");
+  if (!reviewMe || reviewMe.tier < 3) { box.innerHTML = ""; return; }
+  const r = await api("/api/org/waiting");
+  const vouch = r.vouch.map((o) => `<div class="rank-appeal"><p><b>${esc(o.name)}</b> asks for a vouch. Their page: <a href="${esc(o.page)}" target="_blank" rel="noopener">${esc(o.page)}</a></p>
+    <p class="hint">Vouch only once you know this page is theirs: in person, or by a message from the page itself.</p>
+    <div class="actions"><button type="button" class="quiet" data-orgvouch="${o.id}">Vouch for them</button></div></div>`).join("");
+  const claims = r.claims.map((c) => `<div class="rank-appeal"><p><b>${esc(c.organiser.name)}</b> claims <b>${esc(c.name)}</b>. Its links: ${c.links.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u)}</a>`).join(", ") || "none"}. Their page: <a href="${esc(c.organiser.page)}" target="_blank" rel="noopener">${esc(c.organiser.page)}</a></p>
+    <div class="actions"><button type="button" class="quiet" data-orgclaimans="grant" data-lid="${c.listing}">Give it to them</button><button type="button" class="quiet" data-orgclaimans="refuse" data-lid="${c.listing}">Turn it down</button></div></div>`).join("");
+  box.innerHTML = vouch || claims ? `<div class="card"><h2>Organisers</h2>${vouch}${claims}<p class="hint">Each answer goes in the moderation log.</p></div>` : "";
+}
+
+/* ---------- the moderation log and appeals (2026-10-22) ---------- */
+let logBefore = null;
+async function loadLog(more = false) {
+  const r = await api(`/api/modlog${more && logBefore ? `?before=${logBefore}` : ""}`);
+  const rows = r.entries.map((e) => `<li><span class="log-day">${esc(fmtShort(e.day))}</span> <span>${esc(e.text)}${e.listing ? ` <a href="#l/${e.listing}">See it</a>` : ""}</span></li>`).join("");
+  $("#modlog").innerHTML = (more ? $("#modlog").innerHTML : "") + (rows || (more ? "" : `<li class="hint">The log starts with the next check or steward decision.</li>`));
+  logBefore = r.entries.length ? r.entries[r.entries.length - 1].id : logBefore;
+  $("#modlog-more").hidden = !r.more;
+}
+
+const STATE_WORD = { approved: "checked", pending: "waiting for review", rejected: "turned down" };
+async function loadMine() {
+  const box = $("#me-mine");
+  if (!box) return;
+  const r = await api("/api/mine");
+  const rows = r.listings.map((l) => `<li><span><b>${esc(l.name)}</b>, ${esc(fmtShort(l.date))}: ${STATE_WORD[l.state] || esc(l.state)}</span>
+    ${l.state === "rejected" && !l.appealed ? `<details class="appeal"><summary>Ask for another look</summary>
+      <label for="ap-${l.id}">Why it belongs on The Wheel, if you like</label><textarea id="ap-${l.id}" rows="2" maxlength="300"></textarea>
+      <p class="hint">It goes back to review once, to members who have yet to see it. Names and numbers come out of your note.</p>
+      <button type="button" class="quiet" data-appeal="${l.id}">Send it back to review</button><p class="status" role="status"></p></details>`
+      : l.appealed && l.state === "rejected" ? `<span class="hint">Appealed, and turned down again.</span>` : ""}</li>`).join("");
+  box.innerHTML = `<h2 class="sub">Your listings</h2>${rows ? `<ul class="mine">${rows}</ul>` : `<p class="lede">Listings you add show here, with how their review went.</p>`}
+    ${r.reset_day ? `<h2 class="sub">Your rank</h2><p>A steward reset your rank to zero on ${esc(longDate(r.reset_day))}. Your past reviews stay where they are.</p>
+      ${r.rank_appeal ? `<p class="hint">Your appeal waits for a steward.</p>` : `<label for="rank-note">Ask the stewards to look again</label><textarea id="rank-note" rows="3" maxlength="500"></textarea>
+      <button type="button" class="quiet" data-appealrank="1">Send to the stewards</button><p class="status" role="status"></p>`}` : ""}`;
+}
+async function appealListing(btn) {
+  const box = btn.closest(".appeal"), out = $(".status", box);
+  btn.disabled = true;
+  try { await api(`/api/appeal/${btn.dataset.appeal}`, { note: $("textarea", box).value }); toast("Back in review"); loadMine(); }
+  catch (e) { out.textContent = e.message; btn.disabled = false; }
+}
+async function appealRank(btn) {
+  const out = btn.nextElementSibling;
+  btn.disabled = true;
+  try { await api("/api/appeal-rank", { note: $("#rank-note").value }); toast("Sent to the stewards"); loadMine(); }
+  catch (e) { out.textContent = e.message; btn.disabled = false; }
+}
+async function loadAppeals() {
+  const box = $("#rv-appeals");
+  if (!reviewMe || reviewMe.tier < 3) { box.innerHTML = ""; return; }
+  const { appeals } = await api("/api/appeals");
+  box.innerHTML = appeals.length ? `<div class="card"><h2>Rank appeals</h2>${appeals.map((a) => `<div class="rank-appeal" data-aid="${a.id}">
+      <p><b>${esc(a.account)}</b>, ${esc(fmtShort(a.day))}${a.note ? `: "${esc(a.note)}"` : ""}</p>
+      <div class="actions"><button type="button" class="quiet" data-rankanswer="restore">Restore their rank</button>
+      <button type="button" class="quiet" data-rankanswer="keep">Keep the reset</button></div></div>`).join("")}
+    <p class="hint">Your answer goes in the moderation log by role. An appeal of your own waits for another steward.</p></div>` : "";
+}
+async function answerAppeal(btn) {
+  const row = btn.closest(".rank-appeal");
+  try { await api(`/api/appeals/${row.dataset.aid}`, { action: btn.dataset.rankanswer }); toast(btn.dataset.rankanswer === "restore" ? "Rank restored" : "Reset kept"); loadAppeals(); }
+  catch (e) { toast(e.message); }
+}
+
 /* ---------- reading and comfort, and The Wheel as an app (2026-10-22) ---------- */
 function renderComfort() {
-  $("#comfort-body").innerHTML = COMFORT.map(([k, label, opts, note]) => `<fieldset class="comfort-set"><legend>${label}</legend>
+  $("#comfort-body").innerHTML = `<fieldset class="comfort-set"><legend>View</legend>
+    <label class="tick"><input type="radio" name="cf-ui" data-uiradio="1" value="simple"${UI === "simple" ? " checked" : ""}> Simple: the list first, with filters and tools tucked away</label>
+    <label class="tick"><input type="radio" name="cf-ui" data-uiradio="1" value="full"${UI === "full" ? " checked" : ""}> Full: every filter and tool on the screen</label></fieldset>` + COMFORT.map(([k, label, opts, note]) => `<fieldset class="comfort-set"><legend>${label}</legend>
     ${opts.map(([v, t]) => `<label class="tick"><input type="radio" name="cf-${k}" data-comfort="${k}" value="${v}"${(comfort[k] || "") === v ? " checked" : ""}> ${t}</label>`).join("")}
     ${note ? `<p class="hint">${note}</p>` : ""}</fieldset>`).join("") +
     `<p class="hint">Kept in this browser only. On another device, set them there too.</p>`;
@@ -1299,6 +1639,7 @@ function forgetSavedList() {
     reqs.filter((r) => r.url.includes("/api/events")).forEach((r) => c.delete(r)))))).catch(() => {});
 }
 document.addEventListener("change", (e) => {
+  if (e.target.dataset?.uiradio) { setUI(e.target.value); return; }
   const k = e.target.dataset?.comfort;
   if (!k) return;
   if (e.target.value) comfort[k] = e.target.value; else delete comfort[k];
@@ -1311,6 +1652,7 @@ if ("serviceWorker" in navigator && !new URLSearchParams(location.search).has("s
 }
 
 // boot last, so every declaration above exists before the first view loads
+setUI(UI, false);  // the screen-size default stays a default until someone picks
 window.addEventListener("hashchange", route);
 
 route();

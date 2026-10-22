@@ -8,7 +8,7 @@ import path from "node:path"
 import { Identity } from "@semaphore-protocol/identity"
 import { Group } from "@semaphore-protocol/group"
 import { generateProof } from "@semaphore-protocol/proof"
-import { Wheel, showupScope, doorMessage, CHECKIN_TTL_MS, ACCOUNT_SCOPE, NONCE_TTL_MS } from "../core.mjs"
+import { Wheel, showupScope, doorMessage, CHECKIN_TTL_MS, ACCOUNT_SCOPE, NONCE_TTL_MS, rotatingCode, ROTATE_MS } from "../core.mjs"
 
 const ART = new URL("../artifacts/", import.meta.url).pathname
 const prove = (id, members, message, scope) => {
@@ -107,4 +107,31 @@ test("account login: a fixed pen name, single-use nonces, unlinkable to show-ups
   assert.equal(w.showups[EV].includes(l1.account), false)
   const disk = fs.readdirSync(dir).map((f) => fs.readFileSync(path.join(dir, f), "utf8")).join("\n")
   assert.equal(disk.includes(l1.account) || disk.includes(l1.token), false, "pen names and sessions are not on disk")
+})
+
+test("a door code that changes every minute", async (t) => {
+  t.after(async () => { await globalThis.curve_bn128?.terminate?.() })
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wheel-rot-"))
+  let now = new Date("2026-10-24T18:00:30+13:00")
+  const w = new Wheel(dir, () => now)
+  const a = new Identity("secret-rot-a"), b = new Identity("secret-rot-b"), c = new Identity("secret-rot-c")
+  for (const id of [a, b, c]) w.join(id.commitment.toString())
+  const open = w.openCheckin(EV, true)
+  assert.equal(open.ok, true)
+  assert.equal(open.code, undefined, "no fixed code")
+  assert.match(open.secret, /^[0-9a-f]{64}$/)
+  const minute = Math.floor(now.getTime() / ROTATE_MS)
+  const code = rotatingCode(open.secret, EV, minute)
+  assert.match(code, /^[A-Z2-9]{6}$/)
+  assert.notEqual(rotatingCode(open.secret, EV, minute + 1), code, "the next minute has its own code")
+  const members = w.group().members
+  now = new Date(now.getTime() + 2 * ROTATE_MS)  // read out at the door two minutes ago: still fine
+  const pa = await prove(a, members, doorMessage(code), showupScope(EV))
+  assert.deepEqual(await w.showup(EV, code, pa), { ok: true, count: 1 })
+  now = new Date(now.getTime() + ROTATE_MS)  // three minutes on, that code has gone
+  const pb = await prove(b, members, doorMessage(code), showupScope(EV))
+  assert.equal((await w.showup(EV, code, pb)).why, "code")
+  const fresh = rotatingCode(open.secret, EV, Math.floor(now.getTime() / ROTATE_MS))
+  const pc = await prove(c, members, doorMessage(fresh), showupScope(EV))
+  assert.deepEqual(await w.showup(EV, fresh, pc), { ok: true, count: 2 })
 })

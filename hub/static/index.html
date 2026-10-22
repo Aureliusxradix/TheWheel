@@ -20,9 +20,12 @@
     <a href="#night" data-view="night">Night</a>
     <a href="#recovery" data-view="recovery">Recovery</a>
   </nav>
-  <nav class="tools" aria-label="Tools">
+  <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="menu-panel">Menu</button>
+  <a href="#me" data-view="me" class="me-quick">Me</a>
+  <nav class="tools" id="tools" aria-label="Tools">
     <a href="#add" data-view="add">Add a listing</a>
     <a href="#night" id="events-link" data-view="events">Events</a>
+    <a href="#board" data-view="board">Communities</a>
     <a href="#review" data-view="review">Review<span id="pending-count" class="count" aria-label="waiting for review"></span></a>
     <a href="#areas" data-view="areas">Areas</a>
     <a href="#privacy" data-view="privacy">Privacy</a>
@@ -34,11 +37,36 @@
         <a href="#" data-guide="1">How it works</a>
         <a href="#rep" data-view="rep">How rep works</a>
         <a href="#chats" data-view="chats">Joining group chats</a>
+        <a href="#org" data-view="org">For organisers</a>
+        <a href="#log" data-view="log">Moderation log</a>
         <a href="#comfort" data-view="comfort">Reading and comfort</a>
       </div>
     </details>
     <a href="#comfort" data-view="comfort" class="aa" title="Reading and comfort" aria-label="Reading and comfort">Aa</a>
+    <button type="button" class="to-simple" data-ui="simple">Simple view</button>
     <a href="#me" data-view="me" class="me-link">Me</a>
+  </nav>
+  <nav class="menu-panel" id="menu-panel" aria-label="Menu" hidden>
+    <div class="menu-group"><p class="menu-h">Find</p>
+      <a href="#night" data-view="events" class="menu-events">Events</a>
+      <a href="#board" data-view="board">Communities</a></div>
+    <div class="menu-group"><p class="menu-h">Take part</p>
+      <a href="#add" data-view="add">Add a listing</a>
+      <a href="#review" data-view="review">Review<span class="count menu-count" aria-label="waiting for review"></span></a>
+      <a href="#org" data-view="org">For organisers</a></div>
+    <div class="menu-group"><p class="menu-h">You</p>
+      <a href="#me" data-view="me">Me</a>
+      <a href="#comfort" data-view="comfort">Reading and comfort</a>
+      <a href="#support" data-view="support">Support The Wheel</a></div>
+    <div class="menu-group"><p class="menu-h">How it works</p>
+      <a href="#" data-guide="1">The short guide</a>
+      <a href="#rep" data-view="rep">How rep works</a>
+      <a href="#chats" data-view="chats">Joining group chats</a>
+      <a href="#roadmap" data-view="roadmap">Roadmap</a>
+      <a href="#log" data-view="log">Moderation log</a>
+      <a href="#privacy" data-view="privacy">Privacy</a></div>
+    <div class="view-switch" role="group" aria-label="How much to show"><span>View</span>
+      <button type="button" data-ui="simple">Simple</button><button type="button" data-ui="full">Full: everything at once</button></div>
   </nav>
 </header>
 
@@ -51,6 +79,7 @@
     <div class="filters">
       <label class="search"><span class="sr-only">Search</span>
         <input id="q" type="search" autocomplete="off"></label>
+      <button type="button" class="quiet filter-btn" id="filter-btn" aria-expanded="false" aria-controls="view-mode">Filters</button>
       <div class="ranges" role="group" aria-label="When" id="ranges"></div>
     </div>
     <div class="terms" id="terms"></div>
@@ -93,6 +122,8 @@
   <section id="view-review" class="view" aria-labelledby="h-review" hidden>
     <h1 id="h-review">Review</h1>
     <p class="lede">Each listing waits here until someone checks it against its source. Open the source, then say whether the listing matches it.</p>
+    <div id="rv-appeals"></div>
+    <div id="rv-orgs"></div>
     <label class="search"><span class="sr-only">Search the review list</span>
       <input id="rq" type="search" placeholder="Find one to review: name, place, date…" autocomplete="off"></label>
     <div class="chips rq-modes" role="group" aria-label="Show listings for">
@@ -143,6 +174,8 @@
       <li><b>Links and feeds.</b> A shared link shows a preview in the chat it lands in: the chat app reads the listing's name, date and place from The Wheel. Calendar and feed apps ask for the whole list, the same list for everyone who follows it.</li>
       <li><b>Kept on your device.</b> Reading settings, favourite kinds and, once installed as an app, a copy of the page and the last list stay in your browser.</li>
       <li><b>Reports.</b> Reviewers read a report's reason and note; the pen name that sent it stays on the server.</li>
+      <li><b>Organiser accounts stand apart.</b> An organiser account is its own key with a public name. It travels separately from your pen name, so the two stay unlinked.</li>
+      <li><b>An open record.</b> The <a href="#log">moderation log</a> lists every check, fix and steward decision by role. Appeals go to fresh reviewers, or to the stewards for a rank reset.</li>
       <li><b>Where it runs.</b> Listings and accounts live on a machine we own and look after. The page reaches you through Cloudflare, and a post or flyer you add is read by Anthropic's Claude to turn it into a listing.</li>
     </ul>
 
@@ -228,15 +261,15 @@
     <h2>Next to build</h2>
     <h3 class="rm-group">At the door</h3>
     <ul class="claims plans">
-      <li><b>Organisers open their own check-ins.</b> An organiser who has claimed a listing gets the door code on their own phone.</li>
-      <li><b>A door code that changes every minute,</b> shown on the host's screen, so a code passed around outside the room stops working.</li>
+      <li class="done"><b>Organisers open their own check-ins.</b> An organiser who has claimed a listing gets the door code on their own phone. Done 23 October.</li>
+      <li class="done"><b>A door code that changes every minute,</b> shown on the host's screen, so a code passed around outside the room stops working. Done 23 October.</li>
       <li><b>Hosts scan each phone at the door,</b> for events that want a check-in that holds firm.</li>
     </ul>
     <h3 class="rm-group">Organisers and communities</h3>
     <ul class="claims plans">
-      <li><b>Organisers claim their listings.</b> They keep the details right and post updates: cancelled, moved, sold out.</li>
-      <li><b>A community board.</b> A list of the communities that keep meeting, beside the one-off events.</li>
-      <li><b>Pages for regular events.</b> A weekly kava circle or a monthly open mic gets one page with all its dates.</li>
+      <li class="done"><b>Organisers claim their listings.</b> They keep the details right and post updates: cancelled, moved, sold out. Done 23 October.</li>
+      <li class="done"><b>A community board.</b> A list of the communities that keep meeting, beside the one-off events. Done 22 October.</li>
+      <li class="done"><b>Pages for regular events.</b> A weekly kava circle or a monthly open mic gets one page with all its dates. Done 22 October.</li>
       <li><b>Anonymous interested counts.</b> Members tap Interested and the organiser sees a number, proven like a check-in, with no list of names.</li>
     </ul>
     <h3 class="rm-group">You on The Wheel</h3>
@@ -252,7 +285,7 @@
     <ul class="claims plans">
       <li class="done"><b>Add to calendar, and a feed.</b> One tap puts a listing in your phone's calendar; subscribe once and new events arrive by themselves. Done 22 October.</li>
       <li><b>A map of events,</b> filtered by mode, on the areas already drawn.</li>
-      <li><b>A weekly digest</b> pushed to your phone or read as a feed, with no email address asked for.</li>
+      <li class="done"><b>A weekly digest</b> pushed to your phone or read as a feed, with no email address asked for. Done 22 October.</li>
       <li class="done"><b>Links to share.</b> A link for each listing, ready to drop into a group chat. Done 22 October.</li>
       <li><b>Share from your phone.</b> Send a screenshot or flyer to The Wheel and Add a listing opens with it filled in, on Android once The Wheel is installed.</li>
     </ul>
@@ -266,8 +299,8 @@
     <h3 class="rm-group">Trust and care</h3>
     <ul class="claims plans">
       <li class="done"><b>Report a listing</b> as wrong, out of date or unsafe, and it goes back to review. Done 22 October.</li>
-      <li><b>A public moderation log.</b> Every steward action written where anyone can read it.</li>
-      <li><b>Appeals.</b> A listing turned down, or a rank reset, looked at again by other stewards.</li>
+      <li class="done"><b>A public moderation log.</b> Every steward action written where anyone can read it. Done 22 October.</li>
+      <li class="done"><b>Appeals.</b> A listing turned down goes back to fresh reviewers once; a rank reset goes to the stewards. Done 22 October.</li>
     </ul>
 
     <h2>Further out</h2>
@@ -351,6 +384,33 @@
       <li><b>Check the cleaned announcement before you send it.</b> Reviewers check the listing against it, so take out anything else that names a person.</li>
     </ul>
     <p class="hint">Checked 21 October 2026 against Signal's and Telegram's own pages, Discord's help centre and reports of WhatsApp's usernames. Apps change their settings: the app's own help has the latest.</p>
+  </section>
+
+  <section id="view-board" class="view prose" aria-labelledby="h-board" hidden>
+    <h1 id="h-board">Communities</h1>
+    <p class="lede">The groups that keep meeting: a weekly circle, a monthly open mic, an organiser with more coming up. Open one to see all its dates.</p>
+    <div id="board"></div>
+  </section>
+
+  <section id="view-s" class="view prose" aria-labelledby="h-s" hidden>
+    <div id="series"></div>
+  </section>
+
+  <section id="view-org" class="view prose" aria-labelledby="h-org" hidden>
+    <h1 id="h-org">For organisers</h1>
+    <p class="lede">Run a circle, a gig night or a beach clean? An organiser account lets you keep your listings right, post updates, and open check-ins with a door code that changes every minute.</p>
+    <div id="org-body"></div>
+  </section>
+
+  <section id="view-o" class="view prose" aria-labelledby="h-o" hidden>
+    <div id="o-body"></div>
+  </section>
+
+  <section id="view-log" class="view prose" aria-labelledby="h-log" hidden>
+    <h1 id="h-log">Moderation log</h1>
+    <p class="lede">Every check, fix, merge and steward decision, newest first, written where anyone can read it. Each line names the role that acted; pen names stay with their members. A turned-down listing shows as "a listing".</p>
+    <ol class="modlog" id="modlog"></ol>
+    <button type="button" class="quiet" id="modlog-more" hidden>Show older</button>
   </section>
 
   <section id="view-comfort" class="view prose" aria-labelledby="h-comfort" hidden>

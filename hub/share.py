@@ -159,3 +159,50 @@ def rss(items: list[tuple[dict, str]], title: str, site_url: str) -> bytes:
                    f'<guid isPermaLink="false">{x(rec["id"])}</guid><description>{x(body)}</description></item>')
     out.append("</channel></rss>")
     return "\n".join(out).encode()
+
+
+# ---------- the weekly digest (2026-10-22, the Roadmap's "A weekly digest"): the coming week's checked listings ----------
+
+def week_items(items: list[dict], start: str, days: int = 7) -> list[tuple[str, dict]]:
+    """(date, listing) for every checked listing on in the days from start, soonest first; a repeat on each of its dates."""
+    end = (date.fromisoformat(start) + timedelta(days=days - 1)).isoformat()
+    out = []
+    for rec in items:
+        span = 0
+        if rec.get("end_date") and rec["end_date"] > rec["start_date"]:
+            span = (date.fromisoformat(rec["end_date"]) - date.fromisoformat(rec["start_date"])).days
+        for day in dates_for_feed(rec):
+            last = (date.fromisoformat(day) + timedelta(days=span)).isoformat()
+            if day <= end and last >= start:
+                out.append((max(day, start), rec))
+    return sorted(out, key=lambda x: (x[0], x[1].get("start_time") or "", x[1]["name"]))
+
+
+def digest(items: list[dict], start: str, site_url: str, limit: int = 3500) -> dict:
+    """The week as one short message: a line per listing under its day, cut to fit a phone notification."""
+    rows = week_items(items, start)
+    lines, day, shown = [], None, 0
+    for d, rec in rows:
+        head = f"**{short_day(d)}**"
+        add = ([head] if d != day else []) + [" · ".join([f"- {rec['name']}"] + [x for x in (rec.get("start_time"), where(rec)) if x])]
+        if len("\n".join(lines + add)) > limit:
+            break
+        lines += add
+        day, shown = d, shown + 1
+    more = len(rows) - shown
+    if more:
+        lines.append(f"…and {more} more on The Wheel.")
+    first = short_day(start)
+    return {"week": start, "title": f"The Wheel: the week from {first}", "count": len(rows), "url": site_url,
+            "text": "\n".join(lines) if lines else "A quiet week so far. Add what you know about on The Wheel."}
+
+
+def digest_rss(d: dict, feed_url: str) -> bytes:
+    """The digest as a feed: one item a week, the same words as the push."""
+    x = xml_escape
+    return "\n".join(['<?xml version="1.0" encoding="utf-8"?>', '<rss version="2.0"><channel>',
+                      "<title>The Wheel: weekly</title>", f"<link>{x(d['url'])}</link>",
+                      "<description>What's on in the coming week, checked by the people who go.</description>", "<language>en-nz</language>",
+                      f"<item><title>{x(d['title'])}</title><link>{x(d['url'])}</link>"
+                      f'<guid isPermaLink="false">the-wheel-week-{x(d["week"])}</guid><description>{x(d["text"])}</description></item>',
+                      "</channel></rss>"]).encode()

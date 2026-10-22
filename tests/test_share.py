@@ -58,6 +58,22 @@ class Calendar(unittest.TestCase):
         self.assertEqual(share.dates_for_feed({**RETREAT, "next_date": "2099-07-10"}), ["2099-07-10"])
 
 
+class Digest(unittest.TestCase):
+    def test_the_week_holds_repeats_on_each_date_and_a_running_retreat(self):
+        weekly = {**NIGHT, "id": "4" * 16, "name": "Kava circle", "start_date": "2099-03-02", "repeats_on": ["2099-03-02", "2099-03-09"]}
+        got = share.week_items([RETREAT, weekly, {**RETREAT, "id": "5" * 16, "name": "Long retreat", "start_date": "2099-02-27",
+                                                  "end_date": "2099-03-04"}], "2099-03-03")
+        self.assertEqual([(d, r["name"]) for d, r in got], [("2099-03-03", "Long retreat"), ("2099-03-09", "Kava circle")])
+
+    def test_a_long_week_is_cut_with_a_count(self):
+        many = [{**RETREAT, "id": f"{i:016x}", "name": f"Listing number {i}", "start_date": "2099-03-04"} for i in range(400)]
+        d = share.digest(many, "2099-03-03", "https://site/")
+        self.assertLessEqual(len(d["text"]), 3600)
+        self.assertRegex(d["text"], r"…and \d+ more on The Wheel\.$")
+        self.assertEqual(d["count"], 400)
+        self.assertIn("A quiet week", share.digest([], "2099-03-03", "u")["text"])
+
+
 class Served(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -114,6 +130,14 @@ class Served(unittest.TestCase):
         self.assertEqual((code, h["Content-Type"].split(";")[0]), (200, "application/rss+xml"))
         self.assertIn("<title>The Wheel · Night</title>", rss)
         self.assertNotIn("signal.group", rss)
+
+    def test_digest_and_its_feed(self):
+        code, _, body = self.get("/api/digest")
+        d = json.loads(body)
+        self.assertEqual((code, d["url"]), (200, "https://site.example/thewheel/"))
+        self.assertNotIn("Beach clean", body)  # checked listings only
+        code, h, rss = self.get("/api/digest.xml")
+        self.assertEqual((code, h["Content-Type"].split(";")[0]), (200, "application/rss+xml"))
 
     def test_the_list_says_when_it_was_made(self):
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/events", timeout=10) as r:

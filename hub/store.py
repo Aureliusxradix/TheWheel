@@ -53,6 +53,14 @@ def connect() -> sqlite3.Connection:
       nzd REAL NOT NULL, created INTEGER NOT NULL, state TEXT NOT NULL, conf INTEGER NOT NULL DEFAULT 0, code TEXT);
     CREATE TABLE IF NOT EXISTS suggestions (id INTEGER PRIMARY KEY, listing_id TEXT NOT NULL, account TEXT NOT NULL,
       fields TEXT NOT NULL, day TEXT NOT NULL, UNIQUE (listing_id, account));
+    CREATE TABLE IF NOT EXISTS organisers (id TEXT PRIMARY KEY, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE,
+      page TEXT NOT NULL, code TEXT NOT NULL, made_day TEXT NOT NULL, verified_day TEXT, verified_by TEXT, vouch_asked TEXT);
+    CREATE TABLE IF NOT EXISTS claims (listing_id TEXT PRIMARY KEY, organiser_id TEXT NOT NULL, state TEXT NOT NULL,
+      day TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS modlog (id INTEGER PRIMARY KEY, day TEXT NOT NULL, kind TEXT NOT NULL, listing_id TEXT,
+      data TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS appeals (id INTEGER PRIMARY KEY, account TEXT NOT NULL, note TEXT, day TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'open');
     CREATE TABLE IF NOT EXISTS reports (listing_id TEXT NOT NULL, account TEXT NOT NULL, reason TEXT NOT NULL, note TEXT,
       weight REAL NOT NULL, day TEXT NOT NULL, open INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (listing_id, account));
     """)
@@ -116,6 +124,49 @@ def report(db, listing_id: str, account: str, reason: str, note: str | None, wei
                    "weight=excluded.weight, day=excluded.day, open=1",
                    (listing_id, account, reason, note, weight, day))
         db.commit()
+
+
+def log(db, kind: str, listing_id: str | None = None, **data):
+    """One line in the public moderation log (2026-10-22): what was done and by which role, a day, never a pen name."""
+    with _lock:
+        db.execute("INSERT INTO modlog(day, kind, listing_id, data) VALUES(date('now','localtime'), ?, ?, ?)",
+                   (kind, listing_id, json.dumps(data, ensure_ascii=False)))
+        db.commit()
+
+
+def modlog(db, before: int | None = None, n: int = 100) -> list[dict]:
+    q = "SELECT * FROM modlog" + (" WHERE id < ?" if before else "") + " ORDER BY id DESC LIMIT ?"
+    return [{**dict(r), "data": json.loads(r["data"])} for r in db.execute(q, ((before, n) if before else (n,)))]
+
+
+def appeal_rank(db, account: str, note: str | None, day: str):
+    """A member whose rank was reset asks the stewards to look again: one open appeal at a time."""
+    with _lock:
+        db.execute("DELETE FROM appeals WHERE account=? AND state='open'", (account,))
+        db.execute("INSERT INTO appeals(account, note, day) VALUES(?,?,?)", (account, note, day))
+        db.commit()
+
+
+def appeals(db, state: str = "open") -> list[dict]:
+    return [dict(r) for r in db.execute("SELECT * FROM appeals WHERE state=? ORDER BY id", (state,))]
+
+
+def close_appeal(db, aid: int, state: str) -> dict | None:
+    row = db.execute("SELECT * FROM appeals WHERE id=?", (aid,)).fetchone()
+    if row is None:
+        return None
+    with _lock:
+        db.execute("UPDATE appeals SET state=? WHERE id=?", (state, aid))
+        if state == "restored":
+            db.execute("UPDATE accounts SET reset_day=NULL WHERE account=?", (row["account"],))
+        db.commit()
+    return dict(row)
+
+
+def deposits(db, account: str) -> list[dict]:
+    """A member's own listings, for their Me page only."""
+    return [json.loads(r["body"]) for r in db.execute(
+        "SELECT body FROM events WHERE deposited_account=? ORDER BY start_date DESC LIMIT 100", (account,))]
 
 
 def reports_for(db, listing_id: str) -> list[dict]:
