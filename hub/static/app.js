@@ -426,6 +426,24 @@ function laterDates(ev) {
   return state.events.filter((e) => e.id !== ev.id && !e.past && nameKey(e) === k && on(e) > from).sort((a, b) => on(a).localeCompare(on(b)));
 }
 
+// Festivals stand out (his ask 2026-10-23): a larger card, the flyer as a banner, the whole date range and a badge.
+// A listing marked a festival, or one whose name or kinds say festival, shows this way.
+const isFestival = (ev) => ev.listing_kind === "festival" || (ev.listing_kind !== "volunteer" && /\b(festival|fest)s?\b/i.test([ev.name, ...(ev.tags || [])].join(" ")));
+function dayRange(ev) {
+  const a = d(on(ev)), b = d(onEnd(ev)), days = Math.round((b - a) / 864e5) + 1;
+  const md = (x, mo) => `${x.getDate()}${mo ? ` ${x.toLocaleDateString("en-NZ", { month: "short" })}` : ""}`;
+  const text = days < 2 ? md(a, true) : a.getMonth() === b.getMonth() ? `${a.getDate()}–${md(b, true)}` : `${md(a, true)} – ${md(b, true)}`;
+  return { text, days };
+}
+function festivalDetails(ev) {
+  const f = ev.festival || {};
+  const rows = [];
+  if ((f.lineup || []).length) rows.push(`<div><b>Line-up</b><ul class="fest-lineup">${f.lineup.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>`);
+  if ((f.tickets || []).length) rows.push(`<div><b>Tickets</b><ul>${f.tickets.map((t) => `<li>${esc(t.name)}${t.price ? `: ${esc(t.price)}` : ""}</li>`).join("")}</ul></div>`);
+  [["camping", "Camping"], ["ages", "Ages"], ["bring", "What to bring"], ["access", "Access"]].forEach(([k, label]) => { if (f[k]) rows.push(`<div><b>${label}:</b> ${esc(f[k])}</div>`); });
+  return rows.length ? `<div class="fest-details">${rows.join("")}</div>` : "";
+}
+
 function eventRow(ev, i = 0) {
   const where = [ev.location_name, ev.location_locality && !(ev.location_name || "").includes(ev.location_locality) ? ev.location_locality : null].filter(Boolean).join(", ");
   const unreviewed = ev.review?.state !== "approved";
@@ -448,9 +466,13 @@ function eventRow(ev, i = 0) {
     : ev.reopened && unreviewed ? `<span class="state flag" title="Members reported it, so reviewers are checking it again">reported · checking again</span>`
     : unreviewed ? `<span class="state" title="${c.reviews || 0} review(s) so far">waiting${c.reviews ? ` · ${pct(c.for)}` : ""}</span>`
       : `<span class="state ok" title="How sure the reviewers are, weighted by their rep">√ checked · ${pct(c.for)}</span>`;
-  return `<article class="ev k${i % 3}${volunteer ? " volunteer" : ""}${ev.past ? " past" : ""}" id="ev-${ev.id}">
+  const fest = isFestival(ev), fr = fest ? dayRange(ev) : null;
+  const banner = fest && ev.source?.flyer && /^[0-9a-f]{16}\.webp$/.test(ev.source.flyer)
+    ? `<a class="fest-banner-link" href="${API}/api/flyer/${ev.source.flyer}" target="_blank" rel="noopener"><img class="fest-banner" src="${API}/api/flyer/${ev.source.flyer}" alt="The flyer for ${esc(ev.name)}" loading="lazy"></a>` : "";
+  return `<article class="ev k${i % 3}${volunteer ? " volunteer" : ""}${fest ? " festival" : ""}${ev.past ? " past" : ""}" id="ev-${ev.id}">
     <span class="n">${dt.getDate()} ${dt.toLocaleDateString("en-NZ", { month: "short" })}<small>${fmtDay(on(ev))}</small></span>
     <div class="ev-main">
+      ${fest ? `${banner}<div class="fest-head"><span class="chip strong">Festival${fr.days > 1 ? ` · ${fr.days} days` : ""}</span><span class="fest-dates">${esc(fr.text)}</span></div>` : ""}
       <button type="button" class="ev-name" aria-expanded="false" data-open="${ev.id}">${esc(ev.name)}</button>
       <div class="meta"><span>${esc(when(ev))}</span>${where ? `<span>${esc(where)}</span>` : ""}${ev.price ? `<span>${esc(ev.price)}</span>` : ""}</div>
       ${(() => { const more = laterDates(ev); return more.length ? `<div class="more-dates">Also on ${more.slice(0, 4).map((e) => `<a href="#l/${e.id}">${esc(fmtShort(on(e)))}</a>`).join(", ")}${more.length > 4 ? ` and ${more.length - 4} more` : ""}</div>` : ""; })()}
@@ -463,6 +485,7 @@ function eventRow(ev, i = 0) {
       <div class="inline-card" hidden></div>
       <div class="more" hidden>
         ${ev.description ? `<p>${esc(ev.description)}</p>` : ""}
+        ${fest ? festivalDetails(ev) : ""}
         ${ev.claimed_by ? `<div>Kept up to date by <a href="#o/${esc(ev.claimed_by.id)}">${esc(ev.claimed_by.name)}</a>, a proven organiser</div>`
           : ev.organiser ? `<div>Organised by ${esc(ev.organiser)}</div>` : ""}
         ${whereFrom(ev)}
@@ -619,7 +642,7 @@ function whereFrom(ev) {
   if (ev.website) out.push(`<div><a href="${esc(ev.website)}" target="_blank" rel="noopener">Organiser's page</a></div>`);
   if (ev.tickets_url) out.push(`<div><a href="${esc(ev.tickets_url)}" target="_blank" rel="noopener">Tickets</a></div>`);
   if (found) out.push(`<div><a href="${esc(found)}" target="_blank" rel="noopener">Where we found it</a></div>`);
-  if (ev.source?.flyer) out.push(`<div class="hint">Found on a flyer${ev.website ? "" : ", no page online"}.</div>${flyerImg(ev)}`);
+  if (ev.source?.flyer) out.push(`<div class="hint">Found on a flyer${ev.website ? "" : ", no page online"}.</div>${isFestival(ev) ? "" : flyerImg(ev)}`);  // a festival's flyer is its banner
   else if (!ev.website && !found && !ev.chat_platform) out.push(`<div class="hint">From a post, no page online.</div>`);
   return chatLine(ev) + out.join("");
 }
@@ -657,12 +680,12 @@ function slotRow(s = {}) {
 
 function editorHtml(ev, prefix) {
   const modes = ev.modes || [];
-  const vol = ev.listing_kind === "volunteer";
+  const vol = ev.listing_kind === "volunteer", fes = ev.listing_kind === "festival", f = ev.festival || {};
   return `<fieldset class="modes-pick"><legend>Modes</legend>` +
     ["day", "night", "recovery"].map((m) => `<label><input type="checkbox" data-mode="${m}"${modes.includes(m) ? " checked" : ""}> ${MODES[m].title}</label>`).join("") +
     `</fieldset>
     <label for="${prefix}-kind">Kind of listing</label>
-    <select id="${prefix}-kind" data-k="listing_kind"><option value="event"${vol ? "" : " selected"}>An event</option><option value="volunteer"${vol ? " selected" : ""}>A call for volunteers</option></select>
+    <select id="${prefix}-kind" data-k="listing_kind"><option value="event"${!vol && !fes ? " selected" : ""}>An event</option><option value="festival"${fes ? " selected" : ""}>A festival</option><option value="volunteer"${vol ? " selected" : ""}>A call for volunteers</option></select>
     <div class="fields">` + FIELDS.map(([k, label, cls]) => {
     const v = k === "tags" ? (ev.tags || []).join(", ") : ev[k] ?? "";
     const id = `${prefix}-${k}`;
@@ -677,6 +700,19 @@ function editorHtml(ev, prefix) {
       <div class="slots-label">Shifts</div>
       <div class="slots">${(ev.slots || []).map(slotRow).join("")}</div>
       <button type="button" class="linklike" data-addslot="1">Add a shift</button>
+    </div>
+    <div class="fest-editor"${fes ? "" : " hidden"}>
+      <p class="hint">A festival shows as a larger card, its flyer across the top. Put its end date above, then what helps people plan:</p>
+      <label for="${prefix}-lineup">Line-up: one act, workshop or stage per line</label>
+      <textarea id="${prefix}-lineup" data-f="lineup" rows="4">${esc((f.lineup || []).join("\n"))}</textarea>
+      <label for="${prefix}-tickets">Tickets: one per line, like "Weekend pass: $180"</label>
+      <textarea id="${prefix}-tickets" data-f="tickets" rows="3">${esc((f.tickets || []).map((t) => t.name + (t.price ? `: ${t.price}` : "")).join("\n"))}</textarea>
+      <div class="fields">
+        <div><label for="${prefix}-camping">Camping</label><input id="${prefix}-camping" data-f="camping" value="${esc(f.camping || "")}" placeholder="On site, bring your own tent"></div>
+        <div><label for="${prefix}-ages">Ages</label><input id="${prefix}-ages" data-f="ages" value="${esc(f.ages || "")}" placeholder="All ages; under 14s with an adult"></div>
+        <div><label for="${prefix}-bring">What to bring</label><input id="${prefix}-bring" data-f="bring" value="${esc(f.bring || "")}" placeholder="Water bottle, warm layers"></div>
+        <div><label for="${prefix}-access">Access</label><input id="${prefix}-access" data-f="access" value="${esc(f.access || "")}" placeholder="Wheelchair access to the main stage"></div>
+      </div>
     </div>
     <details class="chat-pick"${ev.chat_platform ? " open" : ""}><summary>Organised in a group chat?</summary>
       <label for="${prefix}-cp">The app</label>
@@ -704,6 +740,17 @@ function readEditor(card) {
     ? $$(".slot", card).map((r) => Object.fromEntries($$("[data-s]", r).map((i) => [i.dataset.s, i.value.trim()]))).filter((s) => s.date)
     : [];
   if (out.listing_kind !== "volunteer") out.requirements = [];
+  if (out.listing_kind === "festival") {  // the festival section: lines in, tidy lists out
+    const val = (k) => ($(`[data-f="${k}"]`, card)?.value || "").trim();
+    out.festival = {
+      lineup: val("lineup").split("\n").map((x) => x.trim()).filter(Boolean),
+      tickets: val("tickets").split("\n").map((x) => x.trim()).filter(Boolean).map((x) => {
+        const m = x.match(/^(.*?)\s*(?::|—|–| - )\s*([^:—–]*\d[^:—–]*)$/);
+        return m ? { name: m[1], price: m[2] } : { name: x, price: null };
+      }),
+      camping: val("camping"), ages: val("ages"), bring: val("bring"), access: val("access"),
+    };
+  } else out.festival = null;
   return out;
 }
 
@@ -742,6 +789,7 @@ async function readDeposit(e) {
       : `Nothing to list. ${out.notes.join(" ")}`;
     $("#found").innerHTML = out.records.map((ev, i) => `<div class="card" data-i="${i}">
       <h2>${esc(ev.name)}</h2>${dupWarn(ev)}${flyerImg(ev)}
+      ${ev.listing_kind === "festival" ? `<div class="warn">This reads as a festival. Check its end date, then add the line-up, tickets and camping under "A festival" below: they help people plan.</div>` : ""}
       ${ev.chat_platform ? `<div class="warn">From ${esc(chatName(ev))}. Check the cleaned announcement and the group link under "Organised in a group chat" below.</div>` : ""}
       ${!ev.website && !ev.source?.url && !ev.chat_platform ? `<div class="warn">Where can people find this online? If the organiser has a page or a post, put its link in "Organiser's page or post" below. If there is none, it goes out marked "no page online"${ev.source?.flyer ? ", with the flyer shown" : ""}.</div>` : ""}
       ${editorHtml(ev, `f${i}`)}
@@ -964,12 +1012,12 @@ async function saveArea(e) {
 /* ---------- routing + wiring ---------- */
 /* ---------- the first-visit guide (his ask 2026-10-20: "pop-up when loading the page, which shows people how to use it
    and gives context"). Shown once per browser, reopened from "How it works". ---------- */
-const GUIDE = [
+const GUIDE = [  // the short guide, rewritten 2026-10-23 for the one header, the switch and the Menu
   ["Welcome to The Wheel", `<p>Community events gathered in one place, starting in Auckland and open to anywhere. People add what they find, and other people check it. Each listing links to its organiser when there is a page.</p>`],
-  ["Three ways in", `<p><b>Day</b>: workshops, skillshares and volunteer shifts. <b>Night</b>: gigs, socials and evening gatherings. <b>Recovery</b>: retreats, sound baths, breathwork and rest.</p><p>Switch at the top. Each mode has its own look.</p>`],
-  ["Add what you find", `<p>Under <b>Add a listing</b>, paste a post or a link, or drop in a flyer. The Wheel reads it and fills in the listing. You check it and send it for review.</p><p>Members check each listing before it shows as checked. Their reviews count by their <a href="#rep">rep</a>.</p>`],
-  ["Your place, on your device", `<p>On <b>Me</b>, one tap makes you a key and a pen name. The key is the whole sign-up, and it stays on your device.</p><p>Copy your key somewhere safe, like a password manager. With it you sign in on any device as the same pen name. <a href="#rep">Rep</a> grows as your listings and reviews hold up, and it opens more of the tools.</p>`],
-  ["More is coming soon", `<p>This is version one of The Wheel. Private profiles, a volunteer layer, a community board and more are on the way as people join.</p><p>See what comes next, and what each stage waits for, on the <a href="#roadmap">Roadmap</a>.</p>`],
+  ["Three ways in", `<p><b>Day</b>: workshops, skillshares and volunteer shifts. <b>Night</b>: gigs, socials and evening gatherings. <b>Recovery</b>: retreats, sound baths, breathwork and rest.</p><p>Tap one of the three tabs at the top; each has its own look. Tap a listing to open everything about it: share it, add it to your calendar, or report a problem.</p>`],
+  ["Simple, or everything at once", `<p>The switch beside the name moves between two views. <b>Simple</b> shows the list first, with filters behind one button. <b>Everything at once</b> puts every filter and tool on the screen.</p><p>The <b>Menu</b> holds the rest: Communities, Review, For organisers, reading settings (Aa) and how it all works.</p>`],
+  ["Add what you find", `<p>Tap <b>+ Add a listing</b>, then paste a post or a link, or drop in a flyer. The Wheel reads it and fills in the listing. You check it and send it for review.</p><p>Members check each listing before it shows as checked. Their reviews count by their <a href="#rep">rep</a>.</p>`],
+  ["Your place, on your device", `<p>On <b>Me</b>, one tap makes you a key and a pen name. The key is the whole sign-up, and it stays on your device. Copy it somewhere safe, like a password manager, to sign in anywhere as the same pen name.</p><p>Run something? <a href="#org">For organisers</a> has an account of its own. What's coming next is on the <a href="#roadmap">Roadmap</a>.</p>`],
 ];
 let guideAt = 0, guideFrom = null;
 function showGuideStep() {
@@ -1131,7 +1179,11 @@ document.addEventListener("click", (e) => {
 
 document.addEventListener("change", (e) => {
   if (e.target.id === "pickday") { state.date = e.target.value; state.range = e.target.value ? "date" : "all"; renderMode(); return; }
-  if (e.target.dataset?.k === "listing_kind") $(".shift-editor", e.target.closest(".card")).hidden = e.target.value !== "volunteer";
+  if (e.target.dataset?.k === "listing_kind") {
+    const card = e.target.closest(".card");
+    $(".shift-editor", card).hidden = e.target.value !== "volunteer";
+    $(".fest-editor", card).hidden = e.target.value !== "festival";
+  }
 });
 
 $("#q").addEventListener("input", renderList);

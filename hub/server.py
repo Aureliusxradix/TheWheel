@@ -52,7 +52,7 @@ TYPES = {".wasm": "application/wasm", ".html": "text/html; charset=utf-8", ".js"
 EDITABLE = {"name", "summary", "description", "start_date", "start_time", "end_date", "end_time", "recurrence",
             "status", "location_name", "location_address", "location_locality", "price", "website",
             "tickets_url", "tags", "organiser", "online", "modes", "listing_kind", "slots", "requirements",
-            "chat_platform", "chat_link", "chat_link_ok", "chat_text"}
+            "chat_platform", "chat_link", "chat_link_ok", "chat_text", "festival"}
 MEMBERS_ONLY = ("chat_link", "chat_link_ok", "chat_text", "appeal_note")  # a group's link and its announcement: signed-in members only
 MODES = {"day", "night", "recovery"}
 MAX_BODY = 12 * 1024 * 1024
@@ -233,7 +233,9 @@ def clean(rec: dict, edits: dict) -> dict:
         elif k == "chat_text":
             v = chats.scrub(str(v or ""))[:4000] or None
         elif k == "listing_kind":
-            v = v if v in ("event", "volunteer") else "event"
+            v = v if v in ("event", "volunteer", "festival") else "event"
+        elif k == "festival":
+            v = clean_festival(v)
         elif k == "slots":
             out = []
             for sl in v or []:
@@ -262,6 +264,24 @@ def clean(rec: dict, edits: dict) -> dict:
         if rec.get(f) and not re.fullmatch(r"[0-2]\d:[0-5]\d", rec[f]):
             raise ValueError("Times need to look like 19:30.")
     return rec
+
+
+def clean_festival(v) -> dict | None:
+    """A festival's own details (his ask 2026-10-23), kept short and plain."""
+    if not isinstance(v, dict):
+        return None
+    line = lambda x, n: re.sub(r"\s+", " ", str(x or "")).strip()[:n]  # noqa: E731
+    lineup = [line(x, 120) for x in (v.get("lineup") or [])[:80] if line(x, 120)]
+    tickets = [{"name": line(t.get("name"), 80), "price": line(t.get("price"), 40) or None}
+               for t in (v.get("tickets") or [])[:20] if isinstance(t, dict) and line(t.get("name"), 80)]
+    out = {"lineup": lineup, "tickets": tickets, **{k: line(v.get(k), 300) or None for k in ("camping", "ages", "bring", "access")}}
+    return out if any(out.values()) else None
+
+
+def looks_like_festival(rec: dict) -> bool:
+    """After reading: a name or a kind that says festival (the reader's prompt stays as scored)."""
+    words = " ".join([rec.get("name") or ""] + list(rec.get("tags") or []))
+    return bool(re.search(r"\b(festival|fest)s?\b", words, re.I))
 
 
 def settle(rec: dict) -> dict:
@@ -1293,6 +1313,8 @@ class Handler(BaseHTTPRequestHandler):
                 out = core.read(raw, received, allow_path=False)
         out.pop("visible_text", None)
         for r in out["records"]:
+            if r.get("listing_kind") != "volunteer" and looks_like_festival(r):
+                r["listing_kind"] = "festival"
             chats.sort_links(r)
             r["duplicates"] = store.likely_duplicates(db(), r)
             public(r)

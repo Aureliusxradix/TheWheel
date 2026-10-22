@@ -285,10 +285,11 @@
     "listing_kind": {
       "enum": [
         "event",
-        "volunteer"
+        "volunteer",
+        "festival"
       ],
       "default": "event",
-      "description": "A volunteer call has shifts to fill (his call, 2026-10-20: time slots and task requirements)."
+      "description": "A volunteer call has shifts to fill (his call, 2026-10-20: time slots and task requirements). A festival (his ask 2026-10-23) stands out in the list and carries its own details."
     },
     "modes": {
       "type": "array",
@@ -348,6 +349,62 @@
         "type": "string"
       },
       "description": "Volunteer calls only: what the post asks for, in its own words."
+    },
+    "festival": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "A festival's own details (2026-10-23): line-up, tickets, camping, ages, what to bring, access.",
+      "properties": {
+        "lineup": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tickets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "price": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "camping": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ages": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bring": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "access": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     }
   }
 }

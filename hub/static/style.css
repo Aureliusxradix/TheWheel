@@ -622,3 +622,16 @@ html[data-ui="full"] .top nav.tools > a.on { border-color: var(--accent); color:
 .fund-steps b { color: var(--ink); }
 .direct { font-size: .86rem; color: var(--dim); max-width: 46rem; margin: .6rem 0 1rem; padding-left: .8rem; border-left: 2px solid var(--soft-rule); }
 .direct a { color: var(--accent); }
+
+/* festivals stand out (his ask 2026-10-23): a larger card, the flyer as a banner, the date range and a badge */
+.ev.festival { --entry-pad: 1rem 1.1rem; border: 2px solid var(--accent); border-left-width: 6px; margin-top: calc(var(--entry-gap) + .4rem); }
+[data-look="day"] .ev.festival { border: 3px solid #17191A; border-left-width: 8px; }
+.ev.festival .ev-name { font-size: 1.35rem; line-height: 1.25; }
+.fest-banner { display: block; width: 100%; aspect-ratio: 16 / 7; object-fit: cover; border-radius: calc(var(--radius) / 1.5); margin: 0 0 .5rem; }
+.fest-head { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .7rem; margin-bottom: .1rem; }
+.fest-dates { font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.fest-details { display: grid; gap: .5rem; margin: .4rem 0; }
+.fest-details ul { margin: .2rem 0 0; padding-left: 1.1rem; }
+.fest-lineup { columns: 2 10rem; }
+.fest-editor { margin-top: .6rem; display: grid; gap: .2rem; }
+html[data-ui="simple"] .ev.festival:not(:has(.ev-name[aria-expanded="true"])) .chips:has(.strong) { display: flex; }
