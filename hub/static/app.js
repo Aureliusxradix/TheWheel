@@ -1272,6 +1272,9 @@ async function loadProfile(pen) {
     <p class="hint">${r.viewer === "me" ? "This is your profile as you see it, with every item. Others see only what you've set for them; sign out or open it in a private window to see it as everyone does." : r.viewer === "mem" ? "You see what this member shows to members and to everyone." : "You see what this member shows to everyone. Members may see more."}</p></div>`;
 }
 
+// his word 2026-10-23: at every place money changes hands, where it goes, and a way to support him directly
+const DIRECT_NOTE = `<p class="direct">All money through these channels goes to The Wheel. It's a passion project I work on for free, and that will stay so. To support me directly: <a href="https://liberapay.com/AureliusxRadix/" target="_blank" rel="noopener">Liberapay</a> · <a href="https://aureliusxradix.com/" target="_blank" rel="noopener">my site</a>.</p>`;
+
 async function loadSupport() {
   const box = $("#support-buy");
   if (!box) return;
@@ -1292,7 +1295,8 @@ async function loadSupport() {
         <p><a class="primary" href="${esc(cfg.paypal)}" target="_blank" rel="noopener">Pay with PayPal</a></p></div>` : ""}
       <div class="give-way"><h3>Cash</h3>
         <p class="hint">At an event, a steward or organiser with code cards takes cash and hands you a code. The person handing it over is the only one who knows.</p></div>
-    </div>`;
+    </div>
+    ${DIRECT_NOTE}`;
   updateTotal();
   if (saved) watchOrder(saved);
 }

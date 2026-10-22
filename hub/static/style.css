@@ -620,3 +620,5 @@ html[data-ui="full"] .top nav.tools > a.on { border-color: var(--accent); color:
 .fund-steps li::before { content: "○"; position: absolute; left: 0; color: var(--dim); }
 .fund-steps li.reached::before { content: "√"; color: var(--accent); }
 .fund-steps b { color: var(--ink); }
+.direct { font-size: .86rem; color: var(--dim); max-width: 46rem; margin: .6rem 0 1rem; padding-left: .8rem; border-left: 2px solid var(--soft-rule); }
+.direct a { color: var(--accent); }
