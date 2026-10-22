@@ -1501,6 +1501,7 @@ const ORG_EDIT = [["start_date", "Date (2026-10-24)"], ["start_time", "Starts (1
 
 async function loadOrg() {
   const box = $("#org-body");
+  $("#org-how").open = !orgKey();  // open for a newcomer; tucked away once an organiser is signed in
   if (!orgKey()) {
     box.innerHTML = `<div class="me-doors">
       <div class="card"><h2>New organiser account</h2>
