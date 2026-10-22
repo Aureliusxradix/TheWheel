@@ -42,6 +42,8 @@ function setUI(v, keep = true) {
   if (v === "full") setMenu(false);
   $$("[data-ui]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.ui === v)));
   $$("input[data-uiradio]").forEach((r) => (r.checked = r.value === v));
+  const sw = $("#ui-switch");  // one switch, in the same corner in both views (beta note 2026-10-23)
+  if (sw) { sw.setAttribute("aria-checked", String(v === "simple")); sw.title = v === "simple" ? "Simple view is on. Tap for everything at once." : "Everything at once. Tap for the simple view."; }
 }
 function setMenu(open) {
   open = open && UI === "simple";
@@ -1081,6 +1083,7 @@ document.addEventListener("click", (e) => {
   if (t.dataset.opencheckin) openCheckin(t);
   if (t.dataset.share) shareListing(t);
   if (t.dataset.ui) setUI(t.dataset.ui);
+  if (t.id === "ui-switch") setUI(UI === "simple" ? "full" : "simple");
   if (t.dataset.orgnew) orgNew(t);
   if (t.dataset.orgsignin) { const k = $("#org-key-in").value.trim(); if (k.length < 20) { $(".status", t.closest(".card")).textContent = "An organiser key is about 43 letters and numbers."; } else { try { localStorage.setItem(ORG_KEY, k); } catch {} loadOrg(); } }
   if (t.dataset.orgsignout) { if (t.dataset.sure) { try { localStorage.removeItem(ORG_KEY); } catch {} loadOrg(); } else { t.dataset.sure = "1"; t.textContent = "Yes, sign out (copied the key?)"; } }

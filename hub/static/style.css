@@ -421,7 +421,9 @@ html.menu-open .menu-btn { color: var(--accent); border-color: var(--accent); }
 .view-switch button { font: inherit; font-size: .8rem; color: var(--ink); background: transparent; border: 1px solid var(--soft-rule); padding: .35em .9em; border-radius: calc(var(--radius) / 2); }
 .view-switch button[aria-pressed="true"] { background: var(--on-bg); color: var(--on-fg); border-color: var(--accent); }
 
-html[data-ui="simple"] .top { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: .8rem 1rem; padding-block: 1rem .8rem; }
+html[data-ui="simple"] .top { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; align-items: center; gap: .8rem .7rem; padding-block: 1rem .8rem; }
+html[data-ui="simple"] .menu-btn { grid-column: 4; grid-row: 1; }
+html[data-ui="simple"] .me-quick { grid-column: 5; grid-row: 1; }
 html[data-ui="simple"] .menu-btn { display: inline-block; }
 html[data-ui="simple"] .me-quick { display: inline-block; font-weight: 700; color: var(--ink); text-decoration: none; padding: .4em .2em; }
 html[data-ui="simple"] .me-quick.on { color: var(--accent); }
@@ -532,23 +534,40 @@ a.board-name:hover { text-decoration: underline; }
 }
 
 /* the action row (his ask 2026-10-23): Add a listing made prominent, and the two views side by side to compare */
-.top-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem; width: 100%; }
+.top-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; width: 100%; }
 .add-cta { display: inline-flex; align-items: center; font-weight: 700; font-size: .9rem; letter-spacing: .04em; text-decoration: none;
   padding: .6em 1.1em; background: var(--accent); color: var(--ground); border: 1px solid var(--accent); border-radius: calc(var(--radius) / 2); }
 .add-cta:hover { filter: brightness(1.08); }
 .add-cta.on { outline: 2px solid var(--ink); outline-offset: 2px; }
 [data-look="day"] .add-cta { background: #17191A; color: #D7FF3A; border: 2px solid #17191A; }
 [data-look="recovery"] .add-cta { color: #062F5E; }
-.view-toggle { display: inline-flex; }
-.view-toggle button { font: inherit; font-size: .76rem; letter-spacing: .03em; color: var(--ink); background: transparent; cursor: pointer;
-  border: 1px solid var(--soft-rule); padding: .5em .8em; }
-.view-toggle button + button { border-left: 0; }
-.view-toggle button:first-child { border-radius: calc(var(--radius) / 2) 0 0 calc(var(--radius) / 2); }
-.view-toggle button:last-child { border-radius: 0 calc(var(--radius) / 2) calc(var(--radius) / 2) 0; }
-.view-toggle button[aria-pressed="true"] { background: var(--on-bg); color: var(--on-fg); border-color: var(--accent); }
-[data-look="night"] .view-toggle button[aria-pressed="true"] { background: var(--accent); color: var(--ground); }
-[data-look="day"] .view-toggle button { border: 2px solid #17191A; color: #17191A; background: #FFFFFF; }
-[data-look="day"] .view-toggle button + button { border-left: 0; }
-[data-look="day"] .view-toggle button[aria-pressed="true"] { background: #17191A; color: #D7FF3A; }
 html[data-ui="simple"] .top-actions { grid-column: 1 / -1; grid-row: 3; }
 html[data-ui="simple"] .top .menu-panel { grid-row: 4; }
+
+/* the view switch (beta note 2026-10-23: "a button in the corner, maybe next to the wheel ... a simple switch"): one control
+   beside the name, in the same place in both views; on means Simple */
+.ui-switch { display: inline-flex; align-items: center; gap: .4rem; font: inherit; font-size: .74rem; letter-spacing: .04em; color: var(--ink);
+  background: transparent; border: 0; padding: .3rem .1rem; cursor: pointer; }
+.ui-track { position: relative; width: 2.1rem; height: 1.2rem; border-radius: 999px; border: 1px solid var(--soft-rule); background: transparent; flex: none; }
+.ui-knob { position: absolute; top: 50%; left: .15rem; width: .8rem; height: .8rem; margin-top: -.4rem; border-radius: 50%; background: var(--dim); transition: left .15s; }
+.ui-switch[aria-checked="true"] .ui-track { background: var(--accent); border-color: var(--accent); }
+.ui-switch[aria-checked="true"] .ui-knob { left: 1.1rem; background: var(--ground); }
+[data-look="day"] .ui-track { border: 2px solid #17191A; }
+[data-look="day"] .ui-switch[aria-checked="true"] .ui-track { background: #17191A; }
+[data-look="day"] .ui-switch[aria-checked="true"] .ui-knob { background: #D7FF3A; }
+html[data-ui="simple"] .ui-switch { grid-column: 2; grid-row: 1; }
+html[data-ui="full"] .top .brand + .ui-switch { margin-right: auto; }
+@media (max-width: 640px) {
+  .brand { letter-spacing: .1em; font-size: .92rem; }
+  html[data-ui="full"] .top { justify-content: flex-start; }
+}
+.top .ui-switch { align-self: center; }
+.brand { white-space: nowrap; }
+@media (max-width: 640px) {
+  html[data-ui="full"] .top { column-gap: .7rem; padding-block: 1rem .8rem; align-items: center; }
+}
+@media (max-width: 360px) {
+  .ui-word { display: none; }
+  .top nav.modes a { letter-spacing: .05em; font-size: .82rem; }
+}
+@media (max-width: 640px) { html[data-ui="full"] .top .brand { display: inline-flex; align-items: center; min-height: calc(1.6em + 1rem + 2px); } }
