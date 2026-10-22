@@ -1011,7 +1011,7 @@ function route() {
   setLook(MODES[state.mode].look);
   $("#view-mode").hidden = !isMode;
   $$(".view").forEach((v) => { if (v.id !== "view-mode") v.hidden = v.id !== `view-${view}`; });
-  $$(".top nav a").forEach((a) => a.classList.toggle("on", a.dataset.view === view || (a.dataset.view === "events" && isMode)));
+  $$(".top nav a, .add-cta").forEach((a) => a.classList.toggle("on", a.dataset.view === view || (a.dataset.view === "events" && isMode)));
   $$(".menu-events").forEach((a) => a.setAttribute("href", `#${state.mode}`));
   setMenu(false);
   $("#more-menu").classList.toggle("on", ["roadmap", "rep", "chats", "comfort", "log", "org"].includes(view));
@@ -1607,7 +1607,7 @@ async function answerAppeal(btn) {
 function renderComfort() {
   $("#comfort-body").innerHTML = `<fieldset class="comfort-set"><legend>View</legend>
     <label class="tick"><input type="radio" name="cf-ui" data-uiradio="1" value="simple"${UI === "simple" ? " checked" : ""}> Simple: the list first, with filters and tools tucked away</label>
-    <label class="tick"><input type="radio" name="cf-ui" data-uiradio="1" value="full"${UI === "full" ? " checked" : ""}> Full: every filter and tool on the screen</label></fieldset>` + COMFORT.map(([k, label, opts, note]) => `<fieldset class="comfort-set"><legend>${label}</legend>
+    <label class="tick"><input type="radio" name="cf-ui" data-uiradio="1" value="full"${UI === "full" ? " checked" : ""}> Everything at once: every filter and tool on the screen</label></fieldset>` + COMFORT.map(([k, label, opts, note]) => `<fieldset class="comfort-set"><legend>${label}</legend>
     ${opts.map(([v, t]) => `<label class="tick"><input type="radio" name="cf-${k}" data-comfort="${k}" value="${v}"${(comfort[k] || "") === v ? " checked" : ""}> ${t}</label>`).join("")}
     ${note ? `<p class="hint">${note}</p>` : ""}</fieldset>`).join("") +
     `<p class="hint">Kept in this browser only. On another device, set them there too.</p>`;

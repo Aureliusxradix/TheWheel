@@ -530,3 +530,25 @@ a.board-name:hover { text-decoration: underline; }
   html[data-ui="full"] .top nav.tools .more-menu summary { gap: .35em; }
   html[data-ui="full"] .more-panel { left: 0; right: auto; }
 }
+
+/* the action row (his ask 2026-10-23): Add a listing made prominent, and the two views side by side to compare */
+.top-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem; width: 100%; }
+.add-cta { display: inline-flex; align-items: center; font-weight: 700; font-size: .9rem; letter-spacing: .04em; text-decoration: none;
+  padding: .6em 1.1em; background: var(--accent); color: var(--ground); border: 1px solid var(--accent); border-radius: calc(var(--radius) / 2); }
+.add-cta:hover { filter: brightness(1.08); }
+.add-cta.on { outline: 2px solid var(--ink); outline-offset: 2px; }
+[data-look="day"] .add-cta { background: #17191A; color: #D7FF3A; border: 2px solid #17191A; }
+[data-look="recovery"] .add-cta { color: #062F5E; }
+.view-toggle { display: inline-flex; }
+.view-toggle button { font: inherit; font-size: .76rem; letter-spacing: .03em; color: var(--ink); background: transparent; cursor: pointer;
+  border: 1px solid var(--soft-rule); padding: .5em .8em; }
+.view-toggle button + button { border-left: 0; }
+.view-toggle button:first-child { border-radius: calc(var(--radius) / 2) 0 0 calc(var(--radius) / 2); }
+.view-toggle button:last-child { border-radius: 0 calc(var(--radius) / 2) calc(var(--radius) / 2) 0; }
+.view-toggle button[aria-pressed="true"] { background: var(--on-bg); color: var(--on-fg); border-color: var(--accent); }
+[data-look="night"] .view-toggle button[aria-pressed="true"] { background: var(--accent); color: var(--ground); }
+[data-look="day"] .view-toggle button { border: 2px solid #17191A; color: #17191A; background: #FFFFFF; }
+[data-look="day"] .view-toggle button + button { border-left: 0; }
+[data-look="day"] .view-toggle button[aria-pressed="true"] { background: #17191A; color: #D7FF3A; }
+html[data-ui="simple"] .top-actions { grid-column: 1 / -1; grid-row: 3; }
+html[data-ui="simple"] .top .menu-panel { grid-row: 4; }

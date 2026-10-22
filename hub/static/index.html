@@ -20,10 +20,14 @@
     <a href="#night" data-view="night">Night</a>
     <a href="#recovery" data-view="recovery">Recovery</a>
   </nav>
+  <div class="top-actions">
+    <a href="#add" data-view="add" class="add-cta">+ Add a listing</a>
+    <div class="view-toggle" role="group" aria-label="How much to show">
+      <button type="button" data-ui="simple">Simple view</button><button type="button" data-ui="full">Everything at once</button></div>
+  </div>
   <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="menu-panel">Menu</button>
   <a href="#me" data-view="me" class="me-quick">Me</a>
   <nav class="tools" id="tools" aria-label="Tools">
-    <a href="#add" data-view="add">Add a listing</a>
     <a href="#night" id="events-link" data-view="events">Events</a>
     <a href="#board" data-view="board">Communities</a>
     <a href="#review" data-view="review">Review<span id="pending-count" class="count" aria-label="waiting for review"></span></a>
@@ -43,7 +47,6 @@
       </div>
     </details>
     <a href="#comfort" data-view="comfort" class="aa" title="Reading and comfort" aria-label="Reading and comfort">Aa</a>
-    <button type="button" class="to-simple" data-ui="simple">Simple view</button>
     <a href="#me" data-view="me" class="me-link">Me</a>
   </nav>
   <nav class="menu-panel" id="menu-panel" aria-label="Menu" hidden>
@@ -65,8 +68,6 @@
       <a href="#roadmap" data-view="roadmap">Roadmap</a>
       <a href="#log" data-view="log">Moderation log</a>
       <a href="#privacy" data-view="privacy">Privacy</a></div>
-    <div class="view-switch" role="group" aria-label="How much to show"><span>View</span>
-      <button type="button" data-ui="simple">Simple</button><button type="button" data-ui="full">Full: everything at once</button></div>
   </nav>
 </header>
 
