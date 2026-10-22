@@ -419,6 +419,13 @@ function shiftsTable(ev) {
     `</tbody></table></div>`;
 }
 
+// The same event added once per date stays as separate listings (his call 2026-10-23), each linked to its next dates
+const nameKey = (ev) => (ev.name || "").toLowerCase().replace(/[^a-z0-9āēīōū]+/g, " ").trim();
+function laterDates(ev) {
+  const k = nameKey(ev), from = on(ev);
+  return state.events.filter((e) => e.id !== ev.id && !e.past && nameKey(e) === k && on(e) > from).sort((a, b) => on(a).localeCompare(on(b)));
+}
+
 function eventRow(ev, i = 0) {
   const where = [ev.location_name, ev.location_locality && !(ev.location_name || "").includes(ev.location_locality) ? ev.location_locality : null].filter(Boolean).join(", ");
   const unreviewed = ev.review?.state !== "approved";
@@ -446,6 +453,7 @@ function eventRow(ev, i = 0) {
     <div class="ev-main">
       <button type="button" class="ev-name" aria-expanded="false" data-open="${ev.id}">${esc(ev.name)}</button>
       <div class="meta"><span>${esc(when(ev))}</span>${where ? `<span>${esc(where)}</span>` : ""}${ev.price ? `<span>${esc(ev.price)}</span>` : ""}</div>
+      ${(() => { const more = laterDates(ev); return more.length ? `<div class="more-dates">Also on ${more.slice(0, 4).map((e) => `<a href="#l/${e.id}">${esc(fmtShort(on(e)))}</a>`).join(", ")}${more.length > 4 ? ` and ${more.length - 4} more` : ""}</div>` : ""; })()}
       ${ev.org_note ? `<div class="org-note"><b>Update from the organiser, ${esc(fmtShort(ev.org_note.day))}:</b> ${esc(ev.org_note.text)}</div>` : ""}
       ${shiftsTable(ev)}
       ${(ev.requirements || []).length ? `<div class="line">Asks for: ${esc(ev.requirements.join(", "))}</div>` : ""}
@@ -523,9 +531,10 @@ function renderFollow() {
       <button type="button" class="quiet" data-copylink="${esc(cal)}">Copy the calendar link</button>
       <a class="quiet" href="${esc(rss)}">RSS feed</a></div>
     <p class="hint">Google Calendar on a computer: Other calendars, then From URL, and paste the calendar link.</p>
-    <h3 class="follow-h">Weekly</h3>
-    <p class="hint">Every Monday, the week ahead as one item in your feed reader.</p>
-    <div class="actions"><a class="quiet" href="${esc(`${BASE}/api/digest.xml`)}">Weekly RSS</a></div>`;
+    <h3 class="follow-h">Weekly, on your phone</h3>
+    <p class="hint">Every Monday morning, the week ahead in one notification. Install the free ntfy app, add the server <b>ntfy.aureliusxradix.com</b> and subscribe to the topic <b>thewheel</b>. It works without an account, an email or a phone number.</p>
+    <div class="actions"><a class="quiet" href="https://ntfy.aureliusxradix.com/thewheel" target="_blank" rel="noopener">Open the topic</a>
+      <a class="quiet" href="${esc(`${BASE}/api/digest.xml`)}">Weekly RSS</a></div>`;
 }
 
 function grouped(list) {
@@ -1348,7 +1357,13 @@ const isRegular = (ev) => !!ev.recurrence;
 async function loadBoard() {
   const { events, today } = await api("/api/events?unreviewed=1");
   const seen = new Set();  // the same name at the same place once, the checked copy first
-  const regular = events.filter(isRegular).sort((a, b) => (b.review?.state === "approved") - (a.review?.state === "approved"))
+  const series = {};  // the same event added once per date: one row, with how many dates are ahead
+  events.filter((e) => !isRegular(e) && !e.past).forEach((e) => (series[nameKey(e)] = series[nameKey(e)] || []).push(e));
+  const asSeries = Object.values(series).filter((g) => g.length > 1).map((g) => {
+    const first = g.sort((a, b) => on(a).localeCompare(on(b)))[0];
+    return { ...first, recurrence: `${g.length} dates coming up`, _series: true };
+  });
+  const regular = [...events.filter(isRegular), ...asSeries].sort((a, b) => (b.review?.state === "approved") - (a.review?.state === "approved"))
     .filter((e) => { const k = `${e.name.trim().toLowerCase()}|${placeOf(e).toLowerCase()}`; return !seen.has(k) && seen.add(k); })
     .sort((a, b) => on(a).localeCompare(on(b)));
   const groups = {};
@@ -1357,7 +1372,7 @@ async function loadBoard() {
     (groups[k] = groups[k] || { name: e.organiser.trim(), events: [] }).events.push(e);
   });
   const orgs = Object.values(groups).filter((g) => g.events.length > 1).sort((a, b) => b.events.length - a.events.length);
-  const regRow = (ev) => `<li class="board-row"><a class="board-name" href="#s/${ev.id}">${esc(ev.name)}</a>
+  const regRow = (ev) => `<li class="board-row"><a class="board-name" href="${ev._series ? `#l/${ev.id}` : `#s/${ev.id}`}">${esc(ev.name)}</a>
     <span class="board-meta">${esc(ev.recurrence.slice(0, 60))}${placeOf(ev) ? ` · ${esc(placeOf(ev))}` : ""}</span>
     <span class="board-next">${on(ev) < today && onEnd(ev) >= today ? `On now, until ${esc(fmtShort(onEnd(ev)))}`
       : on(ev) >= today ? `Next: ${esc(fmtShort(on(ev)))}` : "Next date: check the organiser's page"}</span></li>`;

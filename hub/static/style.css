@@ -603,3 +603,6 @@ html[data-ui="full"] .top nav.tools > a.on { border-color: var(--accent); color:
 .dup-side { display: grid; gap: .3rem; align-content: start; min-width: 0; overflow-wrap: anywhere; }
 .dup-side .quiet { justify-self: start; margin-top: .2rem; }
 @media (max-width: 520px) { .dup-sides { grid-template-columns: minmax(0, 1fr); } .dup-side + .dup-side { border-top: 1px dashed var(--soft-rule); padding-top: .6rem; } }
+.more-dates { font-size: .84rem; color: var(--dim); }
+.more-dates a { color: inherit; }
+[data-look="day"] .ev.k2 .more-dates { color: var(--block-2-dim); }
