@@ -139,6 +139,10 @@ class Served(unittest.TestCase):
         code, h, rss = self.get("/api/digest.xml")
         self.assertEqual((code, h["Content-Type"].split(";")[0]), (200, "application/rss+xml"))
 
+    def test_the_fund_shows_a_total_and_a_count_only(self):
+        code, _, body = self.get("/api/fund")
+        self.assertEqual((code, json.loads(body)), (200, {"raised": 0, "gifts": 0, "updated": None, "goal": 10000.0}))
+
     def test_the_list_says_when_it_was_made(self):
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/events", timeout=10) as r:
             self.assertIn("at", json.load(r))
@@ -149,6 +153,15 @@ class Served(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as e:
             urllib.request.urlopen(req, timeout=10)
         self.assertEqual(e.exception.code, 401)
+
+
+class Fund(unittest.TestCase):
+    def test_gifts_add_up_and_keep_no_names(self):
+        store.DB = TMP / "fund.db"
+        db = store.connect()
+        store.fund_add(db, 25, "cash", "2026-10-23")
+        store.fund_add(db, 12.505, "monero", "2026-10-24")
+        self.assertEqual(store.fund_total(db), {"raised": 37.51, "gifts": 2, "updated": "2026-10-24"})
 
 
 class Reports(unittest.TestCase):

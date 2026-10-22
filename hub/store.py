@@ -57,6 +57,7 @@ def connect() -> sqlite3.Connection:
       page TEXT NOT NULL, code TEXT NOT NULL, made_day TEXT NOT NULL, verified_day TEXT, verified_by TEXT, vouch_asked TEXT);
     CREATE TABLE IF NOT EXISTS claims (listing_id TEXT PRIMARY KEY, organiser_id TEXT NOT NULL, state TEXT NOT NULL,
       day TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS fund (id INTEGER PRIMARY KEY, day TEXT NOT NULL, nzd REAL NOT NULL, how TEXT);
     CREATE TABLE IF NOT EXISTS dup_apart (a TEXT NOT NULL, b TEXT NOT NULL, day TEXT NOT NULL, PRIMARY KEY (a, b));
     CREATE TABLE IF NOT EXISTS modlog (id INTEGER PRIMARY KEY, day TEXT NOT NULL, kind TEXT NOT NULL, listing_id TEXT,
       data TEXT NOT NULL);
@@ -356,3 +357,15 @@ def keep_dups_apart(db, a: str, b: str, day: str):
 
 def dups_apart(db) -> set[tuple[str, str]]:
     return {(r["a"], r["b"]) for r in db.execute("SELECT a, b FROM dup_apart")}
+
+
+def fund_add(db, nzd: float, how: str | None, day: str):
+    """A gift toward The Wheel's own AI (his ask 2026-10-23), entered by hand. Only the total and the count ever leave."""
+    with _lock:
+        db.execute("INSERT INTO fund(day, nzd, how) VALUES(?,?,?)", (day, round(float(nzd), 2), how))
+        db.commit()
+
+
+def fund_total(db) -> dict:
+    r = db.execute("SELECT COALESCE(SUM(nzd), 0) total, COUNT(*) n, MAX(day) last FROM fund").fetchone()
+    return {"raised": round(r["total"], 2), "gifts": r["n"], "updated": r["last"]}

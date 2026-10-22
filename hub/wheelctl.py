@@ -12,6 +12,8 @@
                                                        gift...), printed once: the store keeps only their fingerprints
     python3 hub/wheelctl.py codes count                codes made and used, by months and note
     python3 hub/wheelctl.py supporters                 how many accounts hold supporter months today
+    python3 hub/wheelctl.py fund add <nzd> [how]       a gift toward The Wheel's own AI (how: cash, monero, paypal...)
+    python3 hub/wheelctl.py fund                       the fund's total and count
 
 Steward actions here go in the public moderation log by role, never by pen name (2026-10-22).
 
@@ -52,6 +54,15 @@ elif a[:1] == ["codes"] and len(a) in (3, 4) and a[1].isdigit() and a[2].isdigit
 elif a == ["codes", "count"]:
     for r in db.execute("SELECT months, COALESCE(note,'') note, COUNT(*) made, COUNT(used_day) used FROM codes GROUP BY 1, 2"):
         print(f"{r['months']:>2} months  {r['note'] or '-':<8} made {r['made']:>4}  used {r['used']:>4}")
+elif a[:2] == ["fund", "add"] and len(a) in (3, 4):
+    # a gift toward The Wheel's own AI; the page shows only the total and the count
+    from datetime import date
+    store.fund_add(db, float(a[2]), a[3] if len(a) == 4 else None, date.today().isoformat())
+    t = store.fund_total(db)
+    print(f"added NZ${float(a[2]):.2f}; the fund stands at NZ${t['raised']:.2f} from {t['gifts']} gifts")
+elif a == ["fund"]:
+    t = store.fund_total(db)
+    print(f"NZ${t['raised']:.2f} from {t['gifts']} gifts, last {t['updated'] or 'never'}")
 elif a == ["supporters"]:
     print(f"{support.count(db)} accounts hold supporter months today")
 elif a == ["held"]:

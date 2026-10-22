@@ -998,8 +998,17 @@ document.addEventListener("click", (e) => {
   if (document.documentElement.classList.contains("menu-open") && !e.target.closest("#menu-panel, #menu-btn")) setMenu(false);
 });
 
+async function loadFund() {  // the pool toward The Wheel's own AI (his ask 2026-10-23): total and count only
+  const f = await api("/api/fund");
+  const pct = f.goal ? Math.min(100, (f.raised / f.goal) * 100) : 0;
+  $("#fund-fill").style.width = `${pct.toFixed(1)}%`;
+  const nz = (n) => `NZ$${Math.round(n).toLocaleString("en-NZ")}`;
+  $("#fund-line").textContent = `${nz(f.raised)} raised of ${nz(f.goal)}${f.gifts ? `, from ${f.gifts} ${f.gifts === 1 ? "gift" : "gifts"}` : ""}.`;
+}
+
 async function loadRoadmap() {
   const [g, ev] = await Promise.all([W ? W.status() : { size: 0 }, api("/api/events?unreviewed=1"), loadActive()]);
+  loadFund().catch(() => ($("#fund-line").textContent = "The fund's total loads with the next update."));
   const n = g.size || 0, a = ACTIVE ?? 0;
   $("#rm-members").textContent = n;
   $("#rm-active").textContent = ACTIVE ?? "…";

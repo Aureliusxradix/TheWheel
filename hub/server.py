@@ -62,7 +62,8 @@ ZK_PUBLIC = {("GET", "/group"), ("GET", "/count"), ("POST", "/join"), ("POST", "
 JOIN_FIRST = "Join The Wheel first, on the Me page. It takes one tap."
 API_ONLY = os.environ.get("WHEEL_API_ONLY") == "1"
 ORIGINS = {o.strip() for o in os.environ.get("WHEEL_ORIGINS", "").split(",") if o.strip()}
-SITE = os.environ.get("WHEEL_SITE", "/")  # a share link opens the listing here, at #l/<id>
+SITE = os.environ.get("WHEEL_SITE", "/")
+FUND_GOAL = float(os.environ.get("WHEEL_FUND_GOAL", "10000"))  # NZ$ toward The Wheel's own AI (his figure 2026-10-23, "say some 10knzd")  # a share link opens the listing here, at #l/<id>
 ORG_FIELDS = ("start_date", "start_time", "end_date", "end_time", "location_name", "location_address", "location_locality",
               "price", "website", "tickets_url", "description", "status", "recurrence")  # what a proven organiser keeps right
 STATUSES = ("confirmed", "tentative", "postponed", "cancelled")
@@ -810,6 +811,8 @@ class Handler(BaseHTTPRequestHandler):
             if acct is None:
                 return
             return self.send(200, {"appeals": store.appeals(db())})
+        if u.path == "/api/fund":  # the pool toward The Wheel's own AI: the total and the count, never who or when
+            return self.send(200, {**store.fund_total(db()), "goal": FUND_GOAL})
         if u.path == "/api/active":  # members in good standing: the cover a check-in can count on
             return self.send(200, {"active": active_members()})
         if u.path == "/api/me":
