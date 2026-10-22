@@ -1,0 +1,18 @@
+{
+  "name": "The Wheel",
+  "short_name": "The Wheel",
+  "description": "Community events in one list, in three modes: Day, Night and Recovery. Added and checked by the people who go.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#100D16",
+  "theme_color": "#100D16",
+  "lang": "en-NZ",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+    {"src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}
+  ]
+}

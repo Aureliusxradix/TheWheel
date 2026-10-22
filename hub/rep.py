@@ -20,6 +20,9 @@ WEIGHT = {0: 0.2, 1: 0.4, 2: 0.7, 3: 0.9}
 TIER_NAME = {0: "New", 1: "Regular", 2: "Reviewer", 3: "Steward"}
 SETTLE = 0.7
 NEW_CAP = 0.5  # all New reviews on one side together; below SETTLE on purpose
+# Reports (2026-10-22, the Roadmap's "Report a listing"; PROVISIONAL, his to set): a checked listing goes back to review
+# once its open reports, weighted like reviews, reach REOPEN: one Regular, or three New members together.
+REOPEN = 0.4
 DEPOSIT_POINTS, DEPOSIT_PENALTY, DEPOSIT_WEEK_CAP = 2, -2, 5
 REVIEW_POINTS, REVIEW_PENALTY, REVIEW_WEEK_CAP = 1, -1, 5
 DAILY_DEPOSITS = {0: 3, 1: 10, 2: 10, 3: 50}  # the study's day one: 3 a day for a new member

@@ -9,6 +9,26 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const state = { events: [], areas: [], today: "", mode: "night", range: "all", date: "", dateOnlyMode: false, kind: null, area: null, facet: null, allKinds: false, favOnly: false };
 
+/* Reading and comfort (the Roadmap's "Your way around", built 2026-10-22). Kept in this browser, set on <html> as
+   data-size, data-font, data-space, data-contrast and data-motion; style.css does the rest. The site ships no web fonts,
+   so the easy-reading font is OpenDyslexic where the device has it installed, with Verdana in its place elsewhere. */
+const COMFORT_KEY = "wheel.comfort";
+const COMFORT = [
+  ["size", "Text size", [["", "Standard"], ["big", "Bigger"], ["bigger", "Biggest"]]],
+  ["font", "Font", [["", "The Wheel's own"], ["plain", "Plain"], ["easy", "Easy reading"]],
+    "Plain is your device's everyday font. Easy reading uses OpenDyslexic when your device has it installed, and Verdana otherwise."],
+  ["space", "Spacing", [["", "Standard"], ["wide", "More space between lines, words and letters"]]],
+  ["contrast", "Contrast", [["", "Standard"], ["high", "Higher: solid backgrounds, every line at full strength"]]],
+  ["motion", "Motion", [["", "Follow my device"], ["less", "Less motion"]]],
+];
+const comfort = (() => { try { return JSON.parse(localStorage.getItem(COMFORT_KEY) || "{}"); } catch { return {}; } })();
+function applyComfort() {
+  for (const [k] of COMFORT) {
+    if (comfort[k]) document.documentElement.dataset[k] = comfort[k]; else delete document.documentElement.dataset[k];
+  }
+}
+applyComfort();
+
 /* Favourite kinds (his ask 2026-10-20: "personalisation of tags, as in a favorite system"). Kept in this browser only:
    The Wheel never learns what anyone favours. Starred kinds come first, and "My kinds" shows only listings with them. */
 const FAVS_KEY = "wheel.favkinds";
@@ -172,6 +192,7 @@ function signOut(btn) {
     return;
   }
   W.signOut();
+  forgetSavedList();
   toast("Signed out of this browser");
   loadMe();
 }
@@ -255,6 +276,9 @@ async function loadEvents() {
   const unreviewed = $("#unreviewed").checked ? "1" : "0";
   const data = await api(`/api/events?unreviewed=${unreviewed}`);
   Object.assign(state, { events: data.events, areas: data.areas, today: data.today });
+  const note = $("#offline-note");  // the app's saved copy, while offline (sw.js marks it)
+  note.hidden = !data.offline;
+  if (data.offline) note.textContent = `You're offline. This is the list as it was at ${new Date(data.at).toLocaleString("en-NZ", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}.`;
   renderMode();
 }
 
@@ -273,6 +297,7 @@ function renderMode() {
   renderTerms();
   renderChips();
   renderList();
+  renderFollow();
 }
 
 /* the site's terms grid: three figures for the mode, read at a glance */
@@ -377,6 +402,7 @@ function eventRow(ev, i = 0) {
   const c = ev.certainty || {};
   const status = ev.status && ev.status !== "confirmed"
     ? `<span class="state flag">${esc(ev.status)}</span>`
+    : ev.reopened && unreviewed ? `<span class="state flag" title="Members reported it, so reviewers are checking it again">reported · checking again</span>`
     : unreviewed ? `<span class="state" title="${c.reviews || 0} review(s) so far">waiting${c.reviews ? ` · ${pct(c.for)}` : ""}</span>`
       : `<span class="state ok" title="How sure the reviewers are, weighted by their rep">√ checked · ${pct(c.for)}</span>`;
   return `<article class="ev k${i % 3}${volunteer ? " volunteer" : ""}${ev.past ? " past" : ""}" id="ev-${ev.id}">
@@ -394,6 +420,11 @@ function eventRow(ev, i = 0) {
         ${ev.description ? `<p>${esc(ev.description)}</p>` : ""}
         ${ev.organiser ? `<div>Organised by ${esc(ev.organiser)}</div>` : ""}
         ${whereFrom(ev)}
+        <div class="actions ev-tools"><button type="button" class="quiet" data-share="${ev.id}">Share</button>
+          <a class="quiet" href="${API}/api/ics/${ev.id}.ics" rel="nofollow">Add to calendar</a>
+          <button type="button" class="quiet" data-report="1" aria-expanded="false">Report a problem</button></div>
+        <div class="share-out"></div>
+        ${reportForm(ev)}
         ${ev.past ? "" : `<div class="checkin" data-event="${ev.id}" data-label="${esc(ev.name)}, ${esc(on(ev))}">
           <label for="code-${ev.id}">At the event? Enter the door code</label>
           <div class="keyrow"><input id="code-${ev.id}" type="text" maxlength="6" autocomplete="off" spellcheck="false" placeholder="A1B2C3"><button type="button" class="quiet" data-checkin="1">I'm here</button></div>
@@ -401,6 +432,59 @@ function eventRow(ev, i = 0) {
       </div>
     </div>
     ${status}</article>`;
+}
+
+/* ---------- getting events to people (2026-10-22): a link to share, the calendar, reports ---------- */
+const BASE = API || location.origin;  // the data host also answers share links, with a preview for chat apps
+const shareUrl = (id) => `${BASE}/l/${id}`;
+
+async function shareListing(btn) {
+  const ev = state.events.find((e) => e.id === btn.dataset.share);
+  if (!ev) return;
+  const url = shareUrl(ev.id), text = `${ev.name}, ${fmtShort(on(ev))}${ev.start_time ? `, ${ev.start_time}` : ""}`;
+  if (navigator.share) {
+    try { await navigator.share({ title: ev.name, text, url }); return; } catch (e) { if (e.name === "AbortError") return; }
+  }
+  try { await navigator.clipboard.writeText(url); toast("Link copied"); return; } catch {}
+  const out = $(".share-out", btn.closest(".more"));  // no clipboard: the link, selected, to copy by hand
+  out.innerHTML = `<input type="text" readonly value="${esc(url)}" aria-label="Link to this listing">`;
+  $("input", out).select();
+}
+
+function reportForm(ev) {
+  return `<div class="report" hidden>
+    <fieldset class="report-why"><legend>What's wrong?</legend>
+      <label class="tick"><input type="radio" name="why-${ev.id}" value="wrong"> The details are wrong</label>
+      <label class="tick"><input type="radio" name="why-${ev.id}" value="over"> It's cancelled, moved or over</label>
+      <label class="tick"><input type="radio" name="why-${ev.id}" value="unsafe"> It's unsafe or harmful</label>
+    </fieldset>
+    <label for="rnote-${ev.id}">A note for the reviewers, if you like</label>
+    <textarea id="rnote-${ev.id}" rows="2" maxlength="300"></textarea>
+    <p class="hint">Reviewers read the reason and your note; your pen name stays on the server. Names and phone numbers come out of the note first.</p>
+    <div class="actions"><button type="button" class="quiet" data-sendreport="${ev.id}">Send the report</button></div>
+    <p class="status" role="status"></p></div>`;
+}
+
+async function sendReport(btn) {
+  const box = btn.closest(".report"), out = $(".status", box);
+  const why = $("input[type=radio]:checked", box)?.value;
+  if (!why) { out.textContent = "Pick what's wrong first."; return; }
+  btn.disabled = true;
+  try {
+    const r = await api(`/api/report/${btn.dataset.sendreport}`, { reason: why, note: $("textarea", box).value });
+    box.innerHTML = `<p class="status">${r.reopened ? "Thank you. With your report it goes back to review, and reviewers check it again." : "Thank you. Reviewers see your report."}</p>`;
+    if (r.reopened) setTimeout(loadEvents, 2500);
+  } catch (e) { out.innerHTML = /join/i.test(e.message) ? `Reports come from members: join on the <a href="#me">Me</a> page, one tap.` : esc(e.message); }
+  btn.disabled = false;
+}
+
+function renderFollow() {
+  const m = state.mode, cal = `${BASE}/api/feed.ics?mode=${m}`, rss = `${BASE}/api/feed.xml?mode=${m}`;
+  $("#follow-body").innerHTML = `<p class="hint">Checked ${esc(MODES[m].title)} listings, kept up to date by your calendar app or feed reader. It asks The Wheel for the list now and then, the same list everyone following it gets.</p>
+    <div class="actions"><a class="quiet" href="${esc(cal.replace(/^https?:/, "webcal:"))}">Subscribe in my calendar</a>
+      <button type="button" class="quiet" data-copylink="${esc(cal)}">Copy the calendar link</button>
+      <a class="quiet" href="${esc(rss)}">RSS feed</a></div>
+    <p class="hint">Google Calendar on a computer: Other calendars, then From URL, and paste the calendar link.</p>`;
 }
 
 function grouped(list) {
@@ -436,6 +520,29 @@ function renderList() {
       : `<p class="empty">${MODES[state.mode].title} is empty so far. <a href="#add">Add the first listing</a> from a post, a link or a flyer.</p>`;
   }
   $("#list").innerHTML = html;
+  if (state.focus) {  // arrived from a shared link: that listing, opened
+    const row = $(`#ev-${state.focus}`);
+    state.focus = null;
+    if (row) {
+      $(".more", row).hidden = false;
+      $("[data-open]", row).setAttribute("aria-expanded", "true");
+      row.classList.add("focus");
+      row.scrollIntoView({ block: "center" });
+    }
+  }
+}
+
+async function openShared(id) {
+  $("#unreviewed").checked = true;
+  const data = await api("/api/events?unreviewed=1");
+  const ev = data.events.find((e) => e.id === id);
+  if (!ev) { toast("That listing has gone from The Wheel"); history.replaceState(null, "", "#night"); route(); return; }
+  const mode = (ev.modes || []).includes(state.mode) ? state.mode : (ev.modes || ["night"])[0];
+  Object.assign(state, { mode, range: "all", kind: null, area: null, facet: null, favOnly: false, focus: id });
+  $("#q").value = "";
+  if (ev.past) $("#archive").checked = true;
+  history.replaceState(null, "", `#${mode}`);
+  route();
 }
 
 /* Where a listing came from, said plainly (his ruling 2026-10-20: no page online is allowed, labelled, the flyer shown).
@@ -636,6 +743,7 @@ function reviewCard(ev) {
       ${flyerImg(ev)}
       ${!ev.website && !src && !ev.chat_platform ? `<div class="warn">No link yet: it goes out marked "no page online".${canFix ? " Add the organiser's page under Fix details if you know it." : ""}</div>` : ""}
       ${notes ? `<div class="warn">${esc(notes)}</div>` : ""}${dupWarn(ev)}
+      ${(ev.reports || []).length ? `<div class="warn"><b>${ev.reopened ? "Reported, so it's back in review." : "Reported."}</b> ${ev.reports.map((r) => esc(r.reason) + (r.note ? `: "${esc(r.note)}"` : "")).join("; ")}</div>` : ""}
       <div class="source">${esc(sure)}${ev.my_verdict ? ` You said: ${ev.my_verdict === "approve" ? "right" : "wrong"}.` : ""}</div>
       ${ev.mine ? `<p class="hint">You added this one, so someone else checks it.</p>` : `<div class="actions"><button type="button" class="primary" data-act="approve">It's right</button>
       <button type="button" class="danger" data-act="reject">It's wrong</button>
@@ -850,13 +958,14 @@ async function loadRoadmap() {
 
 function route() {
   const view = (location.hash.slice(1) || "night").split("/")[0];
+  if (view === "l") { openShared(location.hash.slice(1).split("/")[1]).catch((e) => toast(e.message)); return; }
   const isMode = view in MODES;
   if (isMode && state.mode !== view) { state.mode = view; state.facet = null; state.kind = null; }
   setLook(MODES[state.mode].look);
   $("#view-mode").hidden = !isMode;
   $$(".view").forEach((v) => { if (v.id !== "view-mode") v.hidden = v.id !== `view-${view}`; });
   $$(".top nav a").forEach((a) => a.classList.toggle("on", a.dataset.view === view || (a.dataset.view === "events" && isMode)));
-  $("#more-menu").classList.toggle("on", ["roadmap", "rep", "chats"].includes(view));
+  $("#more-menu").classList.toggle("on", ["roadmap", "rep", "chats", "comfort"].includes(view));
   $("#more-menu").open = false;
   $("#events-link").setAttribute("href", `#${state.mode}`);
   if (isMode) loadEvents().catch((e) => ($("#list").innerHTML = `<p class="empty">${esc(e.message)}</p>`));
@@ -865,6 +974,7 @@ function route() {
   if (view === "roadmap") loadRoadmap().catch((e) => toast(e.message));
   if (view === "p") loadProfile(location.hash.slice(1).split("/")[1]).catch((e) => ($("#profile-body").innerHTML = `<p class="status err">${esc(e.message)}</p>`));
   if (view === "support") loadSupport().catch((e) => ($("#support-buy").innerHTML = `<p class="status err">${esc(e.message)}</p>`));
+  if (view === "comfort") { renderComfort(); renderInstall(); }
   if (view === "me") loadMe().catch((e) => ($("#me-body").innerHTML = `<p class="status err">${esc(e.message)}</p>`));
 }
 
@@ -914,6 +1024,11 @@ document.addEventListener("click", (e) => {
   if (t.dataset.checkin) checkIn(t);
   if (t.dataset.copyxmr) navigator.clipboard?.writeText($("#xmr").value).then(() => toast("Address copied")).catch(() => $("#xmr").select());
   if (t.dataset.opencheckin) openCheckin(t);
+  if (t.dataset.share) shareListing(t);
+  if (t.dataset.report) { const r = $(".report", t.closest(".more")); r.hidden = !r.hidden; t.setAttribute("aria-expanded", String(!r.hidden)); }
+  if (t.dataset.sendreport) sendReport(t);
+  if (t.dataset.copylink) navigator.clipboard?.writeText(t.dataset.copylink).then(() => toast("Link copied")).catch(() => toast(t.dataset.copylink));
+  if (t.dataset.install) installApp();
   if (t.dataset.del) api(`/api/areas/${t.dataset.del}/delete`, {}).then(() => { toast("Area removed"); loadAreas(); }).catch((err) => toast(err.message));
 });
 
@@ -1150,6 +1265,51 @@ document.addEventListener("change", (e) => {
   }
 });
 
+/* ---------- reading and comfort, and The Wheel as an app (2026-10-22) ---------- */
+function renderComfort() {
+  $("#comfort-body").innerHTML = COMFORT.map(([k, label, opts, note]) => `<fieldset class="comfort-set"><legend>${label}</legend>
+    ${opts.map(([v, t]) => `<label class="tick"><input type="radio" name="cf-${k}" data-comfort="${k}" value="${v}"${(comfort[k] || "") === v ? " checked" : ""}> ${t}</label>`).join("")}
+    ${note ? `<p class="hint">${note}</p>` : ""}</fieldset>`).join("") +
+    `<p class="hint">Kept in this browser only. On another device, set them there too.</p>`;
+}
+
+let installPrompt = null;
+window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installPrompt = e; if (!$("#view-comfort").hidden) renderInstall(); });
+window.addEventListener("appinstalled", () => { installPrompt = null; toast("Installed"); renderInstall(); });
+function renderInstall() {
+  const box = $("#install-body");
+  if (matchMedia("(display-mode: standalone)").matches || navigator.standalone) { box.innerHTML = `<p>You're using The Wheel as an app on this device.</p>`; return; }
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  box.innerHTML = `<p class="lede">Put The Wheel on your home screen. It opens like an app, and offline it shows the last list it loaded.</p>
+    ${installPrompt ? `<button type="button" class="primary" data-install="1">Install The Wheel</button>`
+      : ios ? `<p>On an iPhone or iPad, in Safari: tap Share, then Add to Home Screen.</p>`
+      : `<p>On Android, open the browser menu and tap Add to Home screen or Install. On a computer, Chrome and Edge show Install app in the menu or the address bar.</p>`}
+    <p class="hint">The app keeps two things on this device: a copy of the page, and the last list it loaded.</p>`;
+}
+async function installApp() {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  await installPrompt.userChoice.catch(() => null);
+  installPrompt = null;
+  renderInstall();
+}
+function forgetSavedList() {
+  if (!window.caches) return;
+  caches.keys().then((ks) => ks.forEach((k) => caches.open(k).then((c) => c.keys().then((reqs) =>
+    reqs.filter((r) => r.url.includes("/api/events")).forEach((r) => c.delete(r)))))).catch(() => {});
+}
+document.addEventListener("change", (e) => {
+  const k = e.target.dataset?.comfort;
+  if (!k) return;
+  if (e.target.value) comfort[k] = e.target.value; else delete comfort[k];
+  try { localStorage.setItem(COMFORT_KEY, JSON.stringify(comfort)); } catch {}
+  applyComfort();
+});
+window.addEventListener("online", () => { if (!$("#view-mode").hidden) loadEvents().catch(() => {}); });
+if ("serviceWorker" in navigator && !new URLSearchParams(location.search).has("shot")) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});  // hardened browsers may refuse it; the page works without
+}
+
 // boot last, so every declaration above exists before the first view loads
 window.addEventListener("hashchange", route);
 
@@ -1159,6 +1319,6 @@ route();
   const q = new URLSearchParams(location.search);
   let seen = null;
   try { seen = localStorage.getItem("wheel.guided"); } catch {}
-  if (q.has("guide") || (!seen && !q.has("shot"))) openGuide();
+  if (q.has("guide") || (!seen && !q.has("shot") && !location.hash.startsWith("#l/"))) openGuide();  // a shared link opens its listing
 })();
 refreshCount();

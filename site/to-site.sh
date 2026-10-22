@@ -6,14 +6,15 @@
 # The site gives every page one JSON-LD graph (WebSite + Organization) from its own layout, and its discovery gate
 # refuses a page without one. So index.html becomes src/thewheel.njk: the shell's HTML passed through untouched
 # ({% raw %}), with the site's graph added before </head>. In the sitemap and llms.txt since his ruling 2026-10-20
-# ("Let search find it"). Everything else (app.js, style.css, vendor/) is copied as is (passthrough).
+# ("Let search find it"). Everything else (app.js, style.css, sw.js, the app manifest and icons, vendor/) is copied as is (passthrough).
 set -eu
 cd "$(dirname "$0")/.."
 SITE="${WHEEL_SITE_REPO:-$HOME/Projects/aureliusxradix}"
 [ -f dist/thewheel/index.html ] || { echo "no dist/thewheel; run site/build.sh first" >&2; exit 2; }
 grep -q '<meta name="description"' dist/thewheel/index.html || { echo "REFUSED: the shell has no description" >&2; exit 3; }
 rm -rf "$SITE/src/thewheel"; mkdir -p "$SITE/src/thewheel"
-cp -r dist/thewheel/app.js dist/thewheel/style.css dist/thewheel/vendor "$SITE/src/thewheel/"
+cp -r dist/thewheel/app.js dist/thewheel/style.css dist/thewheel/sw.js dist/thewheel/manifest.webmanifest \
+  dist/thewheel/icons dist/thewheel/vendor "$SITE/src/thewheel/"
 /usr/bin/python3 -E -s - "$SITE/src/thewheel.njk" <<'PY'
 import sys
 html = open("dist/thewheel/index.html").read()

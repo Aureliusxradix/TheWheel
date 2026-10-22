@@ -56,9 +56,13 @@
     res.review_b = rv.status; res.certainty_after_b = rv.json.event && rv.json.event.certainty; res.edit_applied_as_new = rv.json.edited;
     res.name_kept = rv.json.event && rv.json.event.name === "Selftest listing";
     res.state_after_b = rv.json.event && rv.json.event.review.state;
+    // a report from a signed-in member (2026-10-22): kept, the listing still waiting; a bad reason refused
+    res.report_b = (await call("/api/report/1111222233334444", { reason: "over", note: "moved to Sunday" }, lb.token)).json.reopened === false;
+    res.report_bad = (await call("/api/report/1111222233334444", { reason: "spite" }, lb.token)).status === 400;
     res.PASS = res.profile_saved && res.redeem_ok && res.redeem_again === 400 && res.public_view && res.join_nowork && res.signout_clears && res.restore_bad && res.restore_member && res.same_pen_after_signin && res.join && !res.checkin_needs_steward === false && res.login_a && res.me_a && res.me_a.tier === 0 && res.submit_nologin === 401 && res.submit_a === 200
       && res.review_own === 403 && res.areas_a === 403 && res.login_b && res.pens_differ && res.review_b === 200
-      && res.certainty_after_b && res.certainty_after_b.for === 0.2 && res.edit_applied_as_new === false && res.name_kept && res.state_after_b === "pending";
+      && res.certainty_after_b && res.certainty_after_b.for === 0.2 && res.edit_applied_as_new === false && res.name_kept && res.state_after_b === "pending"
+      && res.report_b && res.report_bad;
   } catch (e) { res.error = String(e && e.message || e); res.PASS = false; }
   out.textContent = JSON.stringify(res, null, 1);
 })();

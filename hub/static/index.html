@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Community events in one list, in three modes: Day, Night and Recovery. Added and checked by the people who go. Starting in Auckland, open to anywhere."><!-- in search from 2026-10-20, his ruling: "Let search find it" -->
 <title>The Wheel</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#100D16">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -30,8 +34,10 @@
         <a href="#" data-guide="1">How it works</a>
         <a href="#rep" data-view="rep">How rep works</a>
         <a href="#chats" data-view="chats">Joining group chats</a>
+        <a href="#comfort" data-view="comfort">Reading and comfort</a>
       </div>
     </details>
+    <a href="#comfort" data-view="comfort" class="aa" title="Reading and comfort" aria-label="Reading and comfort">Aa</a>
     <a href="#me" data-view="me" class="me-link">Me</a>
   </nav>
 </header>
@@ -55,7 +61,9 @@
       <label class="toggle"><input id="unreviewed" type="checkbox" checked> Show listings still waiting for review</label>
       <label class="toggle"><input id="archive" type="checkbox"> Show what already happened</label>
     </div>
+    <p class="warn" id="offline-note" role="status" hidden></p>
     <div id="list" aria-live="polite"></div>
+    <details class="follow" id="follow"><summary>Get this list in your calendar or a feed reader</summary><div id="follow-body"></div></details>
   </section>
 
   <section id="view-me" class="view" aria-labelledby="h-me" hidden>
@@ -132,6 +140,9 @@
       <li><b>Proof in place of a list.</b> Members prove they belong, and that they turned up, with zero-knowledge proofs: The Wheel learns that a member checked in, and which member stays with them. The proof protects more as more people join; the <a href="#roadmap">Roadmap</a> shows the count.</li>
       <li><b>Reputation that rewards the long run</b>, earned by listings and reviews that hold up, set after a study of how it can be gamed. <a href="#rep">How rep works</a>.</li>
       <li><b>Group chats kept to members.</b> A group's invite link goes to signed-in members, with the organiser's OK, and senders' names and numbers come out of a pasted announcement before it is read. <a href="#chats">Joining group chats</a>.</li>
+      <li><b>Links and feeds.</b> A shared link shows a preview in the chat it lands in: the chat app reads the listing's name, date and place from The Wheel. Calendar and feed apps ask for the whole list, the same list for everyone who follows it.</li>
+      <li><b>Kept on your device.</b> Reading settings, favourite kinds and, once installed as an app, a copy of the page and the last list stay in your browser.</li>
+      <li><b>Reports.</b> Reviewers read a report's reason and note; the pen name that sent it stays on the server.</li>
       <li><b>Where it runs.</b> Listings and accounts live on a machine we own and look after. The page reaches you through Cloudflare, and a post or flyer you add is read by Anthropic's Claude to turn it into a listing.</li>
     </ul>
 
@@ -173,6 +184,11 @@
     <p class="hint">Newest first. Going live was 20 October 2026.</p>
     <h3 class="rm-group">22 October</h3>
     <ul class="claims">
+      <li><b>Getting events to you.</b> A link for each listing with a preview in group chats, Add to calendar, and a calendar or RSS feed for each mode.</li>
+      <li><b>Report a listing</b> as wrong, over or unsafe. Enough reports send a checked listing back to review.</li>
+      <li><b>Reading and comfort.</b> Bigger text, an easier font, more spacing, higher contrast and less motion, under Aa at the top.</li>
+      <li><b>Install as an app.</b> The Wheel on your home screen, opening with the last list it loaded when you are offline.</li>
+      <li><b>Profiles and Supporter months.</b> A profile where each item has its own audience, and prepaid months of extra looks, paid with a code.</li>
       <li><b>Accounts that stay personal.</b> New members' reviews settle a listing together with a Regular or above, the check-in privacy line counts active members, joining takes a few seconds of work on your device, and Me says plainly what giving a key away means.</li>
     </ul>
     <h3 class="rm-group">21 October</h3>
@@ -225,30 +241,31 @@
     </ul>
     <h3 class="rm-group">You on The Wheel</h3>
     <ul class="claims plans">
-      <li><b>Profiles you shape.</b> Under your pen name, pick what to show and who sees it: everyone, members, or only you. Each choice says what it gives away, and a count shows how many members still look like you. Skills you can prove to an organiser while the rest stays with you.</li>
-      <li><b>Supporter looks.</b> Prepaid months of extra colours and glyph styles for your profile, paid with a code bought by cash, Monero or PayPal, so a payment stays apart from your pen name. Rep, review and limits stay earned.</li>
+      <li class="done"><b>Profiles you shape.</b> Under your pen name, pick what to show and who sees it: everyone, members, or only you. Each choice says what it gives away, and a count shows how many members still look like you. Done 22 October.</li>
+      <li><b>Skills you can prove</b> to an organiser, while the rest of your profile stays with you.</li>
+      <li class="done"><b>Supporter looks.</b> Prepaid months of extra colours and glyph styles for your profile, paid with a code, so a payment stays apart from your pen name. Rep, review and limits stay earned. Done 22 October.</li>
       <li><b>The volunteer layer.</b> Sign up for shifts under your pen name, matched to what a call asks for.</li>
       <li><b>Volunteer thanks.</b> An organiser thanks the pen names who did a shift, and it counts toward their rep.</li>
       <li><b><a href="#rep">Rep</a> for the long run.</b> Turning up and following through over months counts, once check-ins are hard to fake.</li>
     </ul>
     <h3 class="rm-group">Getting events to you</h3>
     <ul class="claims plans">
-      <li><b>Add to calendar, and a feed.</b> One tap puts a listing in your phone's calendar; subscribe once and new events arrive by themselves.</li>
+      <li class="done"><b>Add to calendar, and a feed.</b> One tap puts a listing in your phone's calendar; subscribe once and new events arrive by themselves. Done 22 October.</li>
       <li><b>A map of events,</b> filtered by mode, on the areas already drawn.</li>
       <li><b>A weekly digest</b> pushed to your phone or read as a feed, with no email address asked for.</li>
-      <li><b>Links to share.</b> A link for each listing, ready to drop into a group chat.</li>
+      <li class="done"><b>Links to share.</b> A link for each listing, ready to drop into a group chat. Done 22 October.</li>
       <li><b>Share from your phone.</b> Send a screenshot or flyer to The Wheel and Add a listing opens with it filled in, on Android once The Wheel is installed.</li>
     </ul>
     <h3 class="rm-group">Your way around</h3>
     <ul class="claims plans">
       <li class="done"><b>Favourite kinds.</b> Star the kinds you follow; they come first, and My kinds shows only listings with them. Kept in your browser. Done 20 October.</li>
       <li><b>Your own menu.</b> Pick the mode you start in, pin the tools you use, and tuck the rest away.</li>
-      <li><b>Reading and comfort settings.</b> Bigger text, higher contrast, less motion, and a font made for dyslexic readers.</li>
-      <li><b>Install as an app.</b> The Wheel on your home screen, opening with the last list it loaded when you are offline.</li>
+      <li class="done"><b>Reading and comfort settings.</b> Bigger text, higher contrast, less motion, and an easier font: OpenDyslexic when your device has it. Done 22 October.</li>
+      <li class="done"><b>Install as an app.</b> The Wheel on your home screen, opening with the last list it loaded when you are offline. Done 22 October.</li>
     </ul>
     <h3 class="rm-group">Trust and care</h3>
     <ul class="claims plans">
-      <li><b>Report a listing</b> as wrong, out of date or unsafe, and it goes back to review.</li>
+      <li class="done"><b>Report a listing</b> as wrong, out of date or unsafe, and it goes back to review. Done 22 October.</li>
       <li><b>A public moderation log.</b> Every steward action written where anyone can read it.</li>
       <li><b>Appeals.</b> A listing turned down, or a rank reset, looked at again by other stewards.</li>
     </ul>
@@ -334,6 +351,14 @@
       <li><b>Check the cleaned announcement before you send it.</b> Reviewers check the listing against it, so take out anything else that names a person.</li>
     </ul>
     <p class="hint">Checked 21 October 2026 against Signal's and Telegram's own pages, Discord's help centre and reports of WhatsApp's usernames. Apps change their settings: the app's own help has the latest.</p>
+  </section>
+
+  <section id="view-comfort" class="view prose" aria-labelledby="h-comfort" hidden>
+    <h1 id="h-comfort">Reading and comfort</h1>
+    <p class="lede">Text size, font, spacing, contrast and motion, chosen the way you read best. Each change shows at once, and your choices stay in this browser.</p>
+    <div id="comfort-body"></div>
+    <h2>The Wheel as an app</h2>
+    <div id="install-body"></div>
   </section>
 
   <section id="view-p" class="view prose" aria-labelledby="h-p" hidden>

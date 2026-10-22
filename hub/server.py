@@ -11,6 +11,7 @@ word list. Going live, the page is a static shell on the site and this server an
     WHEEL_ORIGINS=https://...    the pages allowed to call it from another address (comma-separated)
     WHEEL_HOST=0.0.0.0           inside a container; 127.0.0.1 otherwise
     WHEEL_GATE_PATTERNS=/path    the gate's private word list
+    WHEEL_SITE=https://...       the page itself, where a share link sends people on (default: this server's own page)
     WHEEL_DATA, EVENTHUB_DB, WHEEL_ZK_ADMIN_FILE, WHEEL_ZK_URL   where the store, uploads and the member service are
 """
 
@@ -35,7 +36,7 @@ from urllib.parse import parse_qs, urlsplit
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from hub import chats, flyer, gate, kinds, repeats, rep, store, support  # noqa: E402
+from hub import chats, flyer, gate, kinds, repeats, rep, share, store, support  # noqa: E402
 from reader import core  # noqa: E402
 
 STATIC = ROOT / "hub" / "static"
@@ -46,7 +47,8 @@ FLYERS = UPLOADS / "flyers"  # cleaned flyers only (hub/flyer.py); an upload as 
 LINK_FIELDS = ("website", "tickets_url")
 ADMIN_TOKEN = Path(os.environ.get("WHEEL_ZK_ADMIN_FILE") or DATA / "zk-admin.token")
 TYPES = {".wasm": "application/wasm", ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
-         ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png"}
+         ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png",
+         ".webmanifest": "application/manifest+json"}
 EDITABLE = {"name", "summary", "description", "start_date", "start_time", "end_date", "end_time", "recurrence",
             "status", "location_name", "location_address", "location_locality", "price", "website",
             "tickets_url", "tags", "organiser", "online", "modes", "listing_kind", "slots", "requirements",
@@ -60,6 +62,8 @@ ZK_PUBLIC = {("GET", "/group"), ("GET", "/count"), ("POST", "/join"), ("POST", "
 JOIN_FIRST = "Join The Wheel first, on the Me page. It takes one tap."
 API_ONLY = os.environ.get("WHEEL_API_ONLY") == "1"
 ORIGINS = {o.strip() for o in os.environ.get("WHEEL_ORIGINS", "").split(",") if o.strip()}
+SITE = os.environ.get("WHEEL_SITE", "/")  # a share link opens the listing here, at #l/<id>
+REPORT_REASONS = {"wrong": "The details are wrong", "over": "Cancelled, moved or over", "unsafe": "Unsafe or harmful"}
 PRIVATE_FIELDS = ("deposited_by", "deposited_account", "deposit_day")  # who added a listing never leaves the server
 HELD = "The Wheel held this answer back: it carried something that stays on the server."
 GATE = None  # set in main(): the identity gate's compiled word list
@@ -255,7 +259,8 @@ def clean(rec: dict, edits: dict) -> dict:
 
 def settle(rec: dict) -> dict:
     """Work out a listing's certainty from its reviews and move its state when it settles."""
-    revs = store.reviews_for(db(), rec["id"])
+    rnd = rec.get("round", 0)  # a reported listing back in review starts a new round: earlier reviews stay for rep only
+    revs = [r for r in store.reviews_for(db(), rec["id"]) if r["round"] == rnd]
     fors = [r["weight"] for r in revs if r["verdict"] == "approve"]
     against = [r["weight"] for r in revs if r["verdict"] == "reject"]
     c_for, c_against = rep.certainty(fors, against)
@@ -266,7 +271,7 @@ def settle(rec: dict) -> dict:
             if new == "approved":
                 store.geocode(db(), rec)
             rec["review"] = {"state": new, "by": "reviews", "at": store.now()}
-    elif rec["review"].get("state") == "approved":  # checked before accounts existed: by him, as steward
+    elif rec["review"].get("state") == "approved" and not rnd:  # checked before accounts existed: by him, as steward
         rec["certainty"] = {"for": rep.WEIGHT[3], "against": 0.0, "reviews": 1}
     return rec
 
@@ -351,7 +356,58 @@ def listing(params: dict, member: bool = False) -> dict:
         for t in r.get("tags", []):
             tags[t] = tags.get(t, 0) + 1
     return {"events": out, "tags": sorted(tags.items(), key=lambda kv: (-kv[1], kv[0])), "areas": all_areas,
-            "today": today}
+            "today": today, "at": store.now()}
+
+
+def shown_listing(eid: str) -> dict | None:
+    """One listing as anyone sees it in the list (checked or waiting, never members-only fields), or None."""
+    rec = store.get(db(), eid)
+    if rec is None or rec.get("review", {}).get("state") not in ("approved", "pending") or withheld(public(rec)):
+        return None
+    rec["tags"] = kinds.apply(rec.get("tags") or [], store.merges(db()))
+    return for_viewer(dated(rec, datetime.now(TZ).date().isoformat()), False)
+
+
+def feed_items(mode: str | None) -> list[dict]:
+    """Checked listings still to come, in one mode or all: what a calendar subscription and the RSS feed carry."""
+    today = datetime.now(TZ).date().isoformat()
+    out = []
+    for r in store.events(db(), ("approved",)):
+        if withheld(public(r)) or (mode and mode not in (r.get("modes") or [])):
+            continue
+        dated(r, today)
+        if not r["past"]:
+            out.append(for_viewer(r, False))
+    return sorted(out, key=lambda r: (share.on(r), r.get("start_time") or ""))
+
+
+def share_url(base: str, eid: str) -> str:
+    return f"{base}/l/{eid}"
+
+
+def file_report(rec: dict, acct: str, t: int, reason: str, note, day: str) -> bool:
+    """Keep a member's report; a checked listing whose open reports reach rep.REOPEN goes back to review in a new
+    round, where earlier reviews count for rep only. Returns whether it went back."""
+    note = chats.scrub(str(note or ""))[:300] or None  # reviewers read it: names and numbers out first
+    store.report(db(), rec["id"], acct, reason, note, rep.WEIGHT[t], day)
+    if rec["review"]["state"] != "approved":
+        return False  # waiting already: reviewers see the report on its card
+    if rep.certainty([r["weight"] for r in store.reports_for(db(), rec["id"])], [])[0] < rep.REOPEN:
+        return False
+    rec["round"] = rec.get("round", 0) + 1
+    rec["reopened"] = True
+    rec["review"] = {"state": "pending", "by": "reports", "at": store.now()}
+    store.put(db(), rec, "pending")
+    return True
+
+
+def reported(rec: dict) -> list[dict]:
+    """A listing's open reports as reviewers read them: the reason and the note, never who sent it."""
+    out = []
+    for r in store.reports_for(db(), rec["id"]):
+        note = r["note"] if r["note"] and not gate.hit(GATE, r["note"]) else None
+        out.append({"reason": REPORT_REASONS.get(r["reason"], r["reason"]), "note": note})
+    return out
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -372,7 +428,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Max-Age", "600")
             self.send_header("Vary", "Origin")
 
-    def send(self, code: int, body, ctype="application/json; charset=utf-8"):
+    def send(self, code: int, body, ctype="application/json; charset=utf-8", disposition: str | None = None):
         data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode()
         if not ctype.startswith(("image/", "application/wasm", "application/octet-stream")):
             h = gate.hit(GATE, data)  # F4: the last look before anything leaves
@@ -385,6 +441,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        if disposition:
+            self.send_header("Content-Disposition", disposition)
         self.cors()
         self.end_headers()
         self.wfile.write(data)
@@ -413,6 +471,12 @@ class Handler(BaseHTTPRequestHandler):
         if acct:
             store.ensure_account(db(), acct)
         return acct
+
+    def base(self) -> str:
+        """This server's own address as the caller reached it: the start of a share link."""
+        host = re.sub(r"[^A-Za-z0-9.:-]", "", self.headers.get("Host") or "localhost")
+        local = host.split(":")[0] in ("localhost", "127.0.0.1")
+        return f"{'http' if local else 'https'}://{host}"
 
     def watcher(self) -> bool:
         tok, given = watch_token(), self.headers.get("X-Wheel-Watch") or ""
@@ -461,12 +525,15 @@ class Handler(BaseHTTPRequestHandler):
                 r["duplicates"] = store.likely_duplicates(db(), r)
                 r["certainty"] = settle(dict(r))["certainty"]
                 r["mine"] = bool(mine) and r.get("deposited_account") == mine
-                mv = [x["verdict"] for x in store.reviews_for(db(), r["id"]) if x["account"] == mine]
+                mv = [x["verdict"] for x in store.reviews_for(db(), r["id"])
+                      if x["account"] == mine and x["round"] == r.get("round", 0)]
                 r["my_verdict"] = mv[0] if mv else None
                 sugs = store.suggestions_for(db(), r["id"])
                 r["my_suggestion"] = bool(mine) and any(sg["account"] == mine for sg in sugs)
                 if t >= 2 and sugs:  # suggested fixes go to those who can use them
                     r["suggestions"] = shown_suggestions(sugs)
+                if mine:  # reports go to signed-in members, like a group's announcement
+                    r["reports"] = reported(r)
                 for_viewer(public(r), bool(mine))
             return self.send(200, {"events": recs, "me": rep.summary(db(), mine) if mine else None})
         if u.path == "/api/support":
@@ -514,6 +581,33 @@ class Handler(BaseHTTPRequestHandler):
                     counts[tg] = counts.get(tg, 0) + 1
             return self.send(200, {"suggestions": kinds.suggest(counts, store.kept_apart(db())), "kinds": len(counts),
                                    "merged": [{"alias": a, "canonical": c} for a, c in sorted(merged.items())]})
+        base = self.base()
+        m = re.fullmatch(r"/l/([0-9a-f]{16})", u.path)
+        if m:  # a share link: a preview for chat apps, then on to the listing
+            rec = shown_listing(m.group(1))
+            if rec is None:
+                return self.send(404, share.gone(SITE + "#night").encode(), TYPES[".html"])
+            fl = (rec.get("source") or {}).get("flyer")
+            return self.send(200, share.page(rec, share_url(base, rec["id"]), f"{SITE}#l/{rec['id']}",
+                                             f"{base}/api/flyer/{fl}" if fl and flyer.NAME.fullmatch(str(fl)) else None).encode(),
+                             TYPES[".html"])
+        m = re.fullmatch(r"/api/ics/([0-9a-f]{16})\.ics", u.path)
+        if m:  # one listing for your calendar, on the date it is shown on
+            rec = shown_listing(m.group(1))
+            if rec is None:
+                return self.fail(404, "That listing has gone, or is waiting for review.")
+            return self.send(200, share.calendar([(rec, share.on(rec), share_url(base, rec["id"]))], rec["name"]),
+                             "text/calendar; charset=utf-8", f'attachment; filename="the-wheel-{rec["id"]}.ics"')
+        if u.path in ("/api/feed.ics", "/api/feed.xml"):  # subscribe once: checked listings, in one mode or all
+            mode = p.get("mode", [""])[0]
+            mode = mode if mode in MODES else None
+            items = feed_items(mode)
+            title = "The Wheel" + (f" · {mode.capitalize()}" if mode else "")
+            if u.path.endswith(".ics"):
+                return self.send(200, share.calendar([(r, day, share_url(base, r["id"])) for r in items
+                                                      for day in share.dates_for_feed(r)], title), "text/calendar; charset=utf-8")
+            return self.send(200, share.rss([(r, share_url(base, r["id"])) for r in items], title, SITE + (f"#{mode}" if mode else "")),
+                             "application/rss+xml; charset=utf-8")
         m = re.fullmatch(r"/api/flyer/([0-9a-f]{16}\.webp)", u.path)
         if m:
             f = FLYERS / m.group(1)
@@ -658,10 +752,29 @@ class Handler(BaseHTTPRequestHandler):
                 elif action == "save":
                     return self.fail(403, "Fixing a listing's details needs the Reviewer tier. You can approve or reject it.")
                 if action in ("approve", "reject"):
-                    store.cast_review(db(), rec["id"], acct, action, rep.WEIGHT[t], datetime.now(TZ).date().isoformat())
+                    store.cast_review(db(), rec["id"], acct, action, rep.WEIGHT[t], datetime.now(TZ).date().isoformat(),
+                                      rec.get("round", 0))
                 rec = settle(rec)
+                if rec["review"]["state"] != "pending":  # settled again: its reports are answered
+                    rec.pop("reopened", None)
+                    store.close_reports(db(), rec["id"])
                 store.put(db(), rec, rec["review"]["state"])
                 return self.send(200, {"event": public(dict(rec)), "edited": edited, "me": rep.summary(db(), acct)})
+            m = re.fullmatch(r"/api/report/([0-9a-f]{16})", u.path)
+            if m:  # a member says a listing is wrong, over or unsafe; enough weight sends a checked one back to review
+                rec = store.get(db(), m.group(1))
+                if rec is None or rec.get("review", {}).get("state") not in ("approved", "pending"):
+                    return self.fail(404, "That listing has gone. Reload the list.")
+                acct, t = self.need(0)
+                if acct is None:
+                    return
+                reason = b.get("reason")
+                if reason not in REPORT_REASONS:
+                    return self.fail(400, "Pick what's wrong: the details, cancelled or over, or unsafe.")
+                day = datetime.now(TZ).date().isoformat()
+                if store.count_deposit(db(), "report:" + acct, day) > 10:
+                    return self.fail(429, "That's ten reports today. More tomorrow.")
+                return self.send(200, {"reopened": file_report(rec, acct, t, reason, b.get("note"), day)})
             m = re.fullmatch(r"/api/suggestion/(\d+)", u.path)
             if m:
                 acct, t = self.need(2)  # using a suggested fix: Reviewer tier and up, as fixing is

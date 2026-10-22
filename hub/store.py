@@ -53,6 +53,8 @@ def connect() -> sqlite3.Connection:
       nzd REAL NOT NULL, created INTEGER NOT NULL, state TEXT NOT NULL, conf INTEGER NOT NULL DEFAULT 0, code TEXT);
     CREATE TABLE IF NOT EXISTS suggestions (id INTEGER PRIMARY KEY, listing_id TEXT NOT NULL, account TEXT NOT NULL,
       fields TEXT NOT NULL, day TEXT NOT NULL, UNIQUE (listing_id, account));
+    CREATE TABLE IF NOT EXISTS reports (listing_id TEXT NOT NULL, account TEXT NOT NULL, reason TEXT NOT NULL, note TEXT,
+      weight REAL NOT NULL, day TEXT NOT NULL, open INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (listing_id, account));
     """)
     cols = {r["name"] for r in db.execute("PRAGMA table_info(events)")}
     for col in ("deposited_account TEXT", "deposit_day TEXT"):  # pen names, day only: no clock times
@@ -62,6 +64,8 @@ def connect() -> sqlite3.Connection:
         db.execute("ALTER TABLE accounts ADD COLUMN granted_tier INTEGER")  # a tier a steward gives by hand
     if "supporter_until" not in {r["name"] for r in db.execute("PRAGMA table_info(accounts)")}:
         db.execute("ALTER TABLE accounts ADD COLUMN supporter_until TEXT")  # the last day of supporter months
+    if "round" not in {r["name"] for r in db.execute("PRAGMA table_info(reviews)")}:
+        db.execute("ALTER TABLE reviews ADD COLUMN round INTEGER NOT NULL DEFAULT 0")  # a reopened listing starts a new round
     db.commit()
     return db
 
@@ -95,11 +99,35 @@ def count_deposit(db, account: str, day: str) -> int:
     return db.execute("SELECT n FROM deposit_counts WHERE account=? AND day=?", (account, day)).fetchone()["n"]
 
 
-def cast_review(db, listing_id: str, account: str, verdict: str, weight: float, day: str):
+def cast_review(db, listing_id: str, account: str, verdict: str, weight: float, day: str, rnd: int = 0):
     with _lock:
-        db.execute("INSERT INTO reviews VALUES(?,?,?,?,?) ON CONFLICT(listing_id,account) DO UPDATE SET "
-                   "verdict=excluded.verdict, weight=excluded.weight, day=excluded.day",
-                   (listing_id, account, verdict, weight, day))
+        db.execute("INSERT INTO reviews(listing_id,account,verdict,weight,day,round) VALUES(?,?,?,?,?,?) "
+                   "ON CONFLICT(listing_id,account) DO UPDATE SET "
+                   "verdict=excluded.verdict, weight=excluded.weight, day=excluded.day, round=excluded.round",
+                   (listing_id, account, verdict, weight, day, rnd))
+        db.commit()
+
+
+def report(db, listing_id: str, account: str, reason: str, note: str | None, weight: float, day: str):
+    """One open report per member per listing; reporting again replaces it."""
+    with _lock:
+        db.execute("INSERT INTO reports(listing_id,account,reason,note,weight,day,open) VALUES(?,?,?,?,?,?,1) "
+                   "ON CONFLICT(listing_id,account) DO UPDATE SET reason=excluded.reason, note=excluded.note, "
+                   "weight=excluded.weight, day=excluded.day, open=1",
+                   (listing_id, account, reason, note, weight, day))
+        db.commit()
+
+
+def reports_for(db, listing_id: str) -> list[dict]:
+    """Open reports: what the reviewers of a reported listing read."""
+    return [dict(r) for r in db.execute("SELECT account, reason, note, weight FROM reports WHERE listing_id=? AND open=1 "
+                                         "ORDER BY day", (listing_id,))]
+
+
+def close_reports(db, listing_id: str):
+    """The listing settled again: its reports are answered."""
+    with _lock:
+        db.execute("UPDATE reports SET open=0 WHERE listing_id=? AND open=1", (listing_id,))
         db.commit()
 
 
@@ -129,7 +157,7 @@ def drop_suggestion(db, sid: int):
 
 
 def reviews_for(db, listing_id: str) -> list[dict]:
-    return [dict(r) for r in db.execute("SELECT account, verdict, weight FROM reviews WHERE listing_id=?", (listing_id,))]
+    return [dict(r) for r in db.execute("SELECT account, verdict, weight, round FROM reviews WHERE listing_id=?", (listing_id,))]
 
 
 def get(db, eid: str) -> dict | None:
