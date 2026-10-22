@@ -33,20 +33,6 @@
     <a href="#areas" data-view="areas">Areas</a>
     <a href="#privacy" data-view="privacy">Privacy</a>
     <a href="#support" data-view="support">Support</a>
-    <details class="more-menu" id="more-menu">
-      <summary>Additional info</summary>
-      <div class="more-panel">
-        <a href="#roadmap" data-view="roadmap">Roadmap</a>
-        <a href="#" data-guide="1">How it works</a>
-        <a href="#rep" data-view="rep">How rep works</a>
-        <a href="#chats" data-view="chats">Joining group chats</a>
-        <a href="#org" data-view="org">For organisers</a>
-        <a href="#log" data-view="log">Moderation log</a>
-        <a href="#comfort" data-view="comfort">Reading and comfort</a>
-      </div>
-    </details>
-    <a href="#comfort" data-view="comfort" class="aa" title="Reading and comfort" aria-label="Reading and comfort">Aa</a>
-    <a href="#me" data-view="me" class="me-link">Me</a>
   </nav>
   <nav class="menu-panel" id="menu-panel" aria-label="Menu" hidden>
     <div class="menu-group"><p class="menu-h">Find</p>
@@ -58,7 +44,7 @@
       <a href="#org" data-view="org">For organisers</a></div>
     <div class="menu-group"><p class="menu-h">You</p>
       <a href="#me" data-view="me">Me</a>
-      <a href="#comfort" data-view="comfort">Reading and comfort</a>
+      <a href="#comfort" data-view="comfort"><span class="aa-mark" aria-hidden="true">Aa</span> Reading and comfort</a>
       <a href="#support" data-view="support">Support The Wheel</a></div>
     <div class="menu-group"><p class="menu-h">How it works</p>
       <a href="#" data-guide="1">The short guide</a>
@@ -124,6 +110,7 @@
     <p class="lede">Each listing waits here until someone checks it against its source. Open the source, then say whether the listing matches it.</p>
     <div id="rv-appeals"></div>
     <div id="rv-orgs"></div>
+    <div id="rv-dupes"></div>
     <label class="search"><span class="sr-only">Search the review list</span>
       <input id="rq" type="search" placeholder="Find one to review: name, place, date…" autocomplete="off"></label>
     <div class="chips rq-modes" role="group" aria-label="Show listings for">

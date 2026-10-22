@@ -57,6 +57,7 @@ def connect() -> sqlite3.Connection:
       page TEXT NOT NULL, code TEXT NOT NULL, made_day TEXT NOT NULL, verified_day TEXT, verified_by TEXT, vouch_asked TEXT);
     CREATE TABLE IF NOT EXISTS claims (listing_id TEXT PRIMARY KEY, organiser_id TEXT NOT NULL, state TEXT NOT NULL,
       day TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS dup_apart (a TEXT NOT NULL, b TEXT NOT NULL, day TEXT NOT NULL, PRIMARY KEY (a, b));
     CREATE TABLE IF NOT EXISTS modlog (id INTEGER PRIMARY KEY, day TEXT NOT NULL, kind TEXT NOT NULL, listing_id TEXT,
       data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS appeals (id INTEGER PRIMARY KEY, account TEXT NOT NULL, note TEXT, day TEXT NOT NULL,
@@ -336,10 +337,22 @@ def words(s: str) -> set[str]:
 def likely_duplicates(db, rec: dict) -> list[dict]:
     """Same day, and at least half the name's words shared: shown to the reviewer, never merged by itself."""
     out = []
-    for row in db.execute("SELECT body FROM events WHERE start_date=? AND id<>? AND state<>'rejected'",
+    for row in db.execute("SELECT body FROM events WHERE start_date=? AND id<>? AND state NOT IN ('rejected', 'merged')",
                           (rec["start_date"], rec["id"])):
         other = json.loads(row["body"])
         a, b = words(rec.get("name")), words(other.get("name"))
         if a and b and len(a & b) / min(len(a), len(b)) >= 0.5:
             out.append({"id": other["id"], "name": other["name"], "state": other["review"]["state"]})
     return out
+
+
+def keep_dups_apart(db, a: str, b: str, day: str):
+    """Two look-alike listings a person says are different events: never offered as duplicates again."""
+    x, y = sorted((a, b))
+    with _lock:
+        db.execute("INSERT OR IGNORE INTO dup_apart VALUES(?,?,?)", (x, y, day))
+        db.commit()
+
+
+def dups_apart(db) -> set[tuple[str, str]]:
+    return {(r["a"], r["b"]) for r in db.execute("SELECT a, b FROM dup_apart")}

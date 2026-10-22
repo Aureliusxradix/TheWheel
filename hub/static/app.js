@@ -39,14 +39,12 @@ function setUI(v, keep = true) {
   UI = v;
   document.documentElement.dataset.ui = v;
   if (keep) try { localStorage.setItem(UI_KEY, v); } catch {}
-  if (v === "full") setMenu(false);
   $$("[data-ui]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.ui === v)));
   $$("input[data-uiradio]").forEach((r) => (r.checked = r.value === v));
   const sw = $("#ui-switch");  // one switch, in the same corner in both views (beta note 2026-10-23)
   if (sw) { sw.setAttribute("aria-checked", String(v === "simple")); sw.title = v === "simple" ? "Simple view is on. Tap for everything at once." : "Everything at once. Tap for the simple view."; }
 }
 function setMenu(open) {
-  open = open && UI === "simple";
   document.documentElement.classList.toggle("menu-open", open);
   $("#menu-btn").setAttribute("aria-expanded", String(open));
   $("#menu-panel").hidden = !open;
@@ -846,6 +844,7 @@ async function loadReview() {
   reviewMe = me;
   loadAppeals().catch(() => {});
   loadOrgWaiting().catch(() => {});
+  loadDupes().catch(() => {});
   setCount(events.filter(toCheck).length);
   reviewQueue = events;
   renderReview();
@@ -984,12 +983,10 @@ function closeGuide() {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && document.documentElement.classList.contains("menu-open")) { setMenu(false); $("#menu-btn").focus(); }
   if (e.key === "Escape" && !$("#guide").hidden) closeGuide();
-  if (e.key === "Escape" && $("#more-menu").open) { $("#more-menu").open = false; $("#more-menu summary").focus(); }
 });
-// the Additional info drop-down closes on a pick or a click anywhere else
+// the Menu closes on a click anywhere outside it (his ask 2026-10-23: one Menu in both views, in place of "Additional info")
 document.addEventListener("click", (e) => {
-  const m = $("#more-menu");
-  if (m.open && (!m.contains(e.target) || e.target.closest(".more-panel a"))) m.open = false;
+  if (document.documentElement.classList.contains("menu-open") && !e.target.closest("#menu-panel, #menu-btn")) setMenu(false);
 });
 
 async function loadRoadmap() {
@@ -1016,8 +1013,6 @@ function route() {
   $$(".top nav a, .add-cta").forEach((a) => a.classList.toggle("on", a.dataset.view === view || (a.dataset.view === "events" && isMode)));
   $$(".menu-events").forEach((a) => a.setAttribute("href", `#${state.mode}`));
   setMenu(false);
-  $("#more-menu").classList.toggle("on", ["roadmap", "rep", "chats", "comfort", "log", "org"].includes(view));
-  $("#more-menu").open = false;
   $("#events-link").setAttribute("href", `#${state.mode}`);
   if (isMode) renderHead();
   if (isMode) loadEvents().catch((e) => ($("#list").innerHTML = `<p class="empty">${esc(e.message)}</p>`));
@@ -1084,6 +1079,8 @@ document.addEventListener("click", (e) => {
   if (t.dataset.share) shareListing(t);
   if (t.dataset.ui) setUI(t.dataset.ui);
   if (t.id === "ui-switch") setUI(UI === "simple" ? "full" : "simple");
+  if (t.dataset.dupkeep) dupAct({ action: "merge", keep: t.dataset.dupkeep, drop: t.dataset.dupdrop });
+  if (t.dataset.dupapart) dupAct({ action: "apart", a: t.dataset.dupapart, b: t.dataset.dupother });
   if (t.dataset.orgnew) orgNew(t);
   if (t.dataset.orgsignin) { const k = $("#org-key-in").value.trim(); if (k.length < 20) { $(".status", t.closest(".card")).textContent = "An organiser key is about 43 letters and numbers."; } else { try { localStorage.setItem(ORG_KEY, k); } catch {} loadOrg(); } }
   if (t.dataset.orgsignout) { if (t.dataset.sure) { try { localStorage.removeItem(ORG_KEY); } catch {} loadOrg(); } else { t.dataset.sure = "1"; t.textContent = "Yes, sign out (copied the key?)"; } }
@@ -1550,6 +1547,29 @@ async function loadOrgWaiting() {
   const claims = r.claims.map((c) => `<div class="rank-appeal"><p><b>${esc(c.organiser.name)}</b> claims <b>${esc(c.name)}</b>. Its links: ${c.links.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u)}</a>`).join(", ") || "none"}. Their page: <a href="${esc(c.organiser.page)}" target="_blank" rel="noopener">${esc(c.organiser.page)}</a></p>
     <div class="actions"><button type="button" class="quiet" data-orgclaimans="grant" data-lid="${c.listing}">Give it to them</button><button type="button" class="quiet" data-orgclaimans="refuse" data-lid="${c.listing}">Turn it down</button></div></div>`).join("");
   box.innerHTML = vouch || claims ? `<div class="card"><h2>Organisers</h2>${vouch}${claims}<p class="hint">Each answer goes in the moderation log.</p></div>` : "";
+}
+
+/* ---------- duplicates (his ask 2026-10-23): look-alikes on the same day, as pairs; a Reviewer merges or keeps apart ---------- */
+async function loadDupes() {
+  const box = $("#rv-dupes");
+  const { pairs } = await api("/api/duplicates");
+  if (!pairs.length) { box.innerHTML = ""; return; }
+  const can = reviewMe && reviewMe.tier >= 2;
+  const side = (l, other) => `<div class="dup-side">
+      <b>${esc(l.name)}</b>
+      <span class="hint">${esc(fmtShort(l.start_date))}${l.start_time ? `, ${esc(l.start_time)}` : ""}${placeOf(l) ? ` · ${esc(placeOf(l))}` : ""} · ${l.review?.state === "approved" ? "checked" : "waiting"}</span>
+      ${[l.website, l.source_url].filter(Boolean).slice(0, 1).map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener">Its page</a>`).join("")}
+      ${can ? `<button type="button" class="quiet" data-dupkeep="${l.id}" data-dupdrop="${other.id}">Same event: keep this one</button>` : ""}</div>`;
+  box.innerHTML = `<details class="card dupes"${pairs.some((p) => p.exact) ? " open" : ""}><summary><b>Possible duplicates (${pairs.length})</b></summary>
+    <p class="hint">Listings on the same day with names alike.${can ? " Keep one and the other merges into it, bringing any link the kept one lacks. A merge leaves everyone's rep as it was." : " Reviewers merge copies; you can say which is right in the review list."}</p>
+    ${pairs.map((p) => { const [a, b] = p.listings; return `<div class="dup-pair">
+      ${p.exact ? `<p class="dup-tag">Same name, same day</p>` : ""}
+      <div class="dup-sides">${side(a, b)}${side(b, a)}</div>
+      ${can ? `<button type="button" class="linklike" data-dupapart="${a.id}" data-dupother="${b.id}">These are different events</button>` : ""}</div>`; }).join("")}</details>`;
+}
+async function dupAct(body) {
+  try { await api("/api/duplicates", body); toast(body.action === "merge" ? "Merged" : "Kept apart"); loadDupes(); loadReview(); }
+  catch (e) { toast(e.message); }
 }
 
 /* ---------- the moderation log and appeals (2026-10-22) ---------- */

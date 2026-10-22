@@ -342,6 +342,71 @@ def dated(r: dict, today: str) -> dict:
     return r
 
 
+# Duplicates (his ask 2026-10-23: "some kind of duplicate listing auto detect function"). The same name on the same day is
+# a copy: the list shows one, the checked one first, and nothing is deleted. Look-alikes on the same day go to Review as
+# pairs, where a Reviewer merges a copy into the listing it repeats (state "merged": no rep either way) or keeps them apart.
+FILL_FROM_COPY = ("website", "tickets_url", "location_name", "location_address", "location_locality", "price", "description",
+                  "summary", "end_date", "end_time", "start_time")
+
+
+def copy_key(r: dict) -> tuple:
+    return (re.sub(r"[^a-z0-9āēīōū]+", " ", (r.get("name") or "").lower()).strip(), r.get("start_date"))
+
+
+def collapse_copies(recs: list[dict]) -> list[dict]:
+    """One listing per name and day: the checked copy, else the first, stands for the rest. A listing kept apart from
+    every shown one with its name and day still shows."""
+    apart, groups, shown = store.dups_apart(db()), {}, set()
+    for r in sorted(recs, key=lambda r: (r.get("review", {}).get("state") != "approved", r["id"])):
+        group = groups.setdefault(copy_key(r), [])
+        if any(tuple(sorted((g["id"], r["id"]))) not in apart for g in group):
+            continue  # a copy of one already shown
+        group.append(r)
+        shown.add(r["id"])
+    return [r for r in recs if r["id"] in shown]
+
+
+def duplicate_pairs() -> list[dict]:
+    """Look-alike listings on the same day, still to come, that nobody has kept apart."""
+    today, apart, seen, out = datetime.now(TZ).date().isoformat(), store.dups_apart(db()), set(), []
+    recs = [r for r in store.events(db(), ("approved", "pending")) if not withheld(public(r))]
+    by_id = {r["id"]: r for r in recs}
+    shown = {r["id"] for r in collapse_copies(recs)}  # a look-alike pair is offered once, between listings on the list
+    for r in recs:
+        if (r.get("end_date") or r["start_date"]) < today:
+            continue
+        for d in store.likely_duplicates(db(), r):
+            pair = tuple(sorted((r["id"], d["id"])))
+            if pair in seen or pair in apart or d["id"] not in by_id:
+                continue
+            seen.add(pair)
+            a, b = by_id[pair[0]], by_id[pair[1]]
+            if copy_key(a) != copy_key(b) and not (a["id"] in shown and b["id"] in shown):
+                continue
+            out.append({"exact": copy_key(a) == copy_key(b), "listings": [for_viewer(dup_summary(x), False) for x in (a, b)]})
+    return sorted(out, key=lambda p: (not p["exact"], p["listings"][0]["start_date"]))
+
+
+def dup_summary(r: dict) -> dict:
+    keys = ("id", "name", "start_date", "start_time", "end_time", "location_name", "location_locality", "price", "website",
+            "tickets_url", "modes", "review", "recurrence")
+    return {**{k: r.get(k) for k in keys}, "source_url": (r.get("source") or {}).get("url"), "flyer": (r.get("source") or {}).get("flyer")}
+
+
+def merge_copy(keep: dict, drop: dict):
+    """The copy goes out as merged into the listing it repeats; anything the kept one lacks comes across."""
+    for f in FILL_FROM_COPY:
+        if not keep.get(f) and drop.get(f):
+            keep[f] = drop[f]
+    if drop.get("source", {}).get("flyer") and not keep.get("source", {}).get("flyer"):
+        keep.setdefault("source", {})["flyer"] = drop["source"]["flyer"]
+    drop["merged_into"] = keep["id"]
+    drop["review"] = {"state": "merged", "by": "duplicate", "at": store.now()}
+    store.put(db(), keep, keep["review"]["state"])
+    store.put(db(), drop, "merged")
+    store.close_reports(db(), drop["id"])
+
+
 def claimed_map() -> dict:
     """listing id -> the proven organiser holding it, as everyone sees it."""
     return {r["listing_id"]: {"id": r["id"], "name": r["name"]} for r in db().execute(
@@ -372,7 +437,7 @@ def listing(params: dict, member: bool = False) -> dict:
     out = []
     merged = store.merges(db())
     held = claimed_map()
-    for r in store.events(db(), states):
+    for r in collapse_copies(store.events(db(), states)):
         if withheld(public(r)):
             continue
         if r["id"] in held:
@@ -488,6 +553,8 @@ LOG_TEXT = {
     "org_claim_refused": "A Steward turned down a claim on {L}.",
     "org_updated": "The organiser {org} updated {fields} on {L}.",
     "org_checkin": "The organiser {org} opened check-in for {L}.",
+    "dup_merged": "A {by} merged a copy into {L}.",
+    "dup_apart": "A {by} marked {L} and a look-alike on the same day as different events.",
 }
 FIELD_WORDS = {"name": "the name", "start_date": "the date", "start_time": "the start time", "end_date": "the end date",
                "end_time": "the end time", "location_name": "the place", "location_locality": "the town",
@@ -736,6 +803,8 @@ class Handler(BaseHTTPRequestHandler):
                     claims.append({"listing": r["id"], "name": r["name"], "links": [x for x in (r.get("website"), r.get("tickets_url"),
                                    (r.get("source") or {}).get("url")) if x], "organiser": organisers.public(o)})
             return self.send(200, {"vouch": [organisers.public(o) for o in organisers.waiting_vouch(db())], "claims": claims})
+        if u.path == "/api/duplicates":  # look-alike listings on the same day, for Review
+            return self.send(200, {"pairs": duplicate_pairs()})
         if u.path == "/api/appeals":  # stewards: rank appeals waiting for a look
             acct, t = self.need(3)
             if acct is None:
@@ -1036,6 +1105,27 @@ class Handler(BaseHTTPRequestHandler):
                     return self.fail(404, "That claim has gone. Reload the page.")
                 o = organisers.get(db(), c["organiser_id"])
                 store.log(db(), "org_claim_granted" if b["action"] == "grant" else "org_claim_refused", m.group(1), org=o["name"] if o else "")
+                return self.send(200, {"ok": True})
+            if u.path == "/api/duplicates":  # a Reviewer merges a copy, or keeps two look-alikes apart
+                acct, t = self.need(2)
+                if acct is None:
+                    return
+                ids = [str(b.get("keep") or b.get("a") or ""), str(b.get("drop") or b.get("b") or "")]
+                recs = [store.get(db(), i) if re.fullmatch(r"[0-9a-f]{16}", i) else None for i in ids]
+                if None in recs or ids[0] == ids[1]:
+                    return self.fail(404, "One of those listings has gone. Reload Review.")
+                if acct in (recs[0].get("deposited_account"), recs[1].get("deposited_account")):
+                    return self.fail(403, "You added one of these, so someone else decides.")
+                if b.get("action") == "merge":
+                    if recs[1]["review"].get("state") not in ("approved", "pending"):
+                        return self.fail(400, "That copy is already out of the list.")
+                    merge_copy(recs[0], recs[1])
+                    store.log(db(), "dup_merged", recs[0]["id"], by=rep.TIER_NAME[t])
+                elif b.get("action") == "apart":
+                    store.keep_dups_apart(db(), ids[0], ids[1], datetime.now(TZ).date().isoformat())
+                    store.log(db(), "dup_apart", ids[0], by=rep.TIER_NAME[t])
+                else:
+                    return self.fail(400, "Pick merge or apart.")
                 return self.send(200, {"ok": True})
             m = re.fullmatch(r"/api/appeal/([0-9a-f]{16})", u.path)
             if m:  # another look at a turned-down listing, asked by the member who added it

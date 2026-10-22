@@ -571,3 +571,35 @@ html[data-ui="full"] .top .brand + .ui-switch { margin-right: auto; }
   .top nav.modes a { letter-spacing: .05em; font-size: .82rem; }
 }
 @media (max-width: 640px) { html[data-ui="full"] .top .brand { display: inline-flex; align-items: center; min-height: calc(1.6em + 1rem + 2px); } }
+
+/* one header in both views (his ask 2026-10-23): name and switch, Menu and Me on the first row; the mode tabs; Add a listing;
+   Full adds a row of direct links. The Menu holds everything else, Aa included, in both views. */
+.top, html[data-ui="simple"] .top, html[data-ui="full"] .top { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  align-items: center; gap: .8rem .7rem; padding-block: 1rem .8rem; }
+.top .brand { grid-column: 1; grid-row: 1; min-height: 0; }
+.top .ui-switch { grid-column: 2; grid-row: 1; margin: 0; }
+.top .menu-btn, html[data-ui="full"] .top .menu-btn { display: inline-block; grid-column: 4; grid-row: 1; }
+.top .me-quick, html[data-ui="full"] .top .me-quick { display: inline-block; grid-column: 5; grid-row: 1; font-weight: 700; color: var(--ink); text-decoration: none; padding: .4em .2em; }
+.top .me-quick.on { color: var(--accent); }
+.top nav.modes, html[data-ui="full"] .top nav.modes { grid-column: 1 / -1; grid-row: 2; width: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; }
+.top nav.modes a, html[data-ui="full"] .top nav.modes a { text-align: center; padding: .6rem 0; border: 1px solid var(--soft-rule); text-decoration: none; }
+.top nav.modes a + a { border-left: 0; }
+.top nav.modes a.on, html[data-ui="full"] .top nav.modes a.on { background: var(--on-bg); color: var(--on-fg); border-color: var(--accent); }
+[data-look="night"] .top nav.modes a.on { background: var(--accent); color: var(--ground); }
+.top .top-actions { grid-column: 1 / -1; grid-row: 3; }
+html[data-ui="full"] .top nav.tools { display: flex; grid-column: 1 / -1; grid-row: 4; flex-wrap: wrap; gap: .4rem; align-items: center; width: auto; }
+html[data-ui="full"] .top nav.tools > a { display: inline-flex; align-items: center; padding: .4em .75em; border: 1px solid var(--soft-rule);
+  border-radius: calc(var(--radius) / 2); color: var(--ink); font-size: .8rem; letter-spacing: .03em; line-height: 1.3; }
+html[data-ui="full"] .top nav.tools > a.on { border-color: var(--accent); color: var(--accent); }
+[data-look="day"][data-ui="full"] .top nav.tools > a { border: 2px solid #17191A; color: #17191A; background: #FFFFFF; }
+.top .menu-panel, html[data-ui="simple"] .top .menu-panel { grid-column: 1 / -1; grid-row: 5; }
+.aa-mark { font-weight: 700; display: inline-block; min-width: 1.6em; }
+
+/* duplicates on Review (2026-10-23) */
+.dupes summary { cursor: pointer; }
+.dup-pair { border-top: 1px solid var(--soft-rule); padding: .8rem 0; }
+.dup-tag { margin: 0 0 .4rem; color: var(--flag); font-size: .85rem; }
+.dup-sides { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
+.dup-side { display: grid; gap: .3rem; align-content: start; min-width: 0; overflow-wrap: anywhere; }
+.dup-side .quiet { justify-self: start; margin-top: .2rem; }
+@media (max-width: 520px) { .dup-sides { grid-template-columns: minmax(0, 1fr); } .dup-side + .dup-side { border-top: 1px dashed var(--soft-rule); padding-top: .6rem; } }
