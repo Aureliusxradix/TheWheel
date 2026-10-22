@@ -107,6 +107,7 @@ class Orders(unittest.TestCase):
         self.assertRegex(st["code"], r"^WHEEL-")
         self.assertIsNone(support.order_status(db, o1["token"]))  # shown once, then the order is gone
         self.assertIsNotNone(support.redeem(db, A, st["code"]))
+        self.assertEqual(store.fund_total(db)["raised"], o1["nzd"])  # a paid order counts toward The Wheel's own AI
 
     def test_order_limits(self):
         db = fresh("limits")

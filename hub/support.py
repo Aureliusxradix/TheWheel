@@ -300,13 +300,15 @@ def watch_list(db) -> list[dict]:
 
 
 def watch_report(db, oid: str, confirmations: int) -> str | None:
-    r = db.execute("SELECT state, months FROM orders WHERE id=?", (str(oid),)).fetchone()
+    r = db.execute("SELECT state, months, nzd FROM orders WHERE id=?", (str(oid),)).fetchone()
     if not r or r["state"] == "paid":
         return r["state"] if r else None
     conf = max(0, int(confirmations))
     if conf >= CONFIRMATIONS:
         code = make_codes(db, r["months"], 1, "monero")[0]
         db.execute("UPDATE orders SET state='paid', conf=?, code=? WHERE id=?", (conf, code, oid))
+        # money through The Wheel counts toward its own AI (his ruling 2026-10-23); the fund keeps the day and the sum only
+        db.execute("INSERT INTO fund(day, nzd, how) VALUES(date('now','localtime'), ?, 'monero')", (r["nzd"],))
     else:
         db.execute("UPDATE orders SET state='seen', conf=? WHERE id=?", (conf, oid))
     db.commit()

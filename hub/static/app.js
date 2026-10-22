@@ -1004,6 +1004,10 @@ async function loadFund() {  // the pool toward The Wheel's own AI (his ask 2026
   $("#fund-fill").style.width = `${pct.toFixed(1)}%`;
   const nz = (n) => `NZ$${Math.round(n).toLocaleString("en-NZ")}`;
   $("#fund-line").textContent = `${nz(f.raised)} raised of ${nz(f.goal)}${f.gifts ? `, from ${f.gifts} ${f.gifts === 1 ? "gift" : "gifts"}` : ""}.`;
+  const bar = $("#fund-bar");  // a tick at each step (his "4 steps", 2026-10-23); reached steps marked
+  bar.querySelectorAll(".fund-tick").forEach((t) => t.remove());
+  (f.steps || []).filter((v) => v < f.goal).forEach((v) => bar.insertAdjacentHTML("beforeend", `<i class="fund-tick" style="left:${(v / f.goal) * 100}%"></i>`));
+  $$("#fund-steps li").forEach((li) => li.classList.toggle("reached", +li.dataset.at <= f.raised));
 }
 
 async function loadRoadmap() {

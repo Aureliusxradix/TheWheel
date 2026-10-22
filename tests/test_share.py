@@ -141,7 +141,7 @@ class Served(unittest.TestCase):
 
     def test_the_fund_shows_a_total_and_a_count_only(self):
         code, _, body = self.get("/api/fund")
-        self.assertEqual((code, json.loads(body)), (200, {"raised": 0, "gifts": 0, "updated": None, "goal": 10000.0}))
+        self.assertEqual((code, json.loads(body)), (200, {"raised": 0, "gifts": 0, "goal": 10000.0, "steps": [3000, 6000, 10000]}))
 
     def test_the_list_says_when_it_was_made(self):
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/events", timeout=10) as r:

@@ -63,6 +63,7 @@ JOIN_FIRST = "Join The Wheel first, on the Me page. It takes one tap."
 API_ONLY = os.environ.get("WHEEL_API_ONLY") == "1"
 ORIGINS = {o.strip() for o in os.environ.get("WHEEL_ORIGINS", "").split(",") if o.strip()}
 SITE = os.environ.get("WHEEL_SITE", "/")
+FUND_STEPS = [3000, 6000, 10000]  # his "4 steps" 2026-10-23: the bench test at nothing, then these three
 FUND_GOAL = float(os.environ.get("WHEEL_FUND_GOAL", "10000"))  # NZ$ toward The Wheel's own AI (his figure 2026-10-23, "say some 10knzd")  # a share link opens the listing here, at #l/<id>
 ORG_FIELDS = ("start_date", "start_time", "end_date", "end_time", "location_name", "location_address", "location_locality",
               "price", "website", "tickets_url", "description", "status", "recurrence")  # what a proven organiser keeps right
@@ -812,7 +813,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             return self.send(200, {"appeals": store.appeals(db())})
         if u.path == "/api/fund":  # the pool toward The Wheel's own AI: the total and the count, never who or when
-            return self.send(200, {**store.fund_total(db()), "goal": FUND_GOAL})
+            t = store.fund_total(db())
+            return self.send(200, {"raised": t["raised"], "gifts": t["gifts"], "goal": FUND_GOAL, "steps": FUND_STEPS})
         if u.path == "/api/active":  # members in good standing: the cover a check-in can count on
             return self.send(200, {"active": active_members()})
         if u.path == "/api/me":
