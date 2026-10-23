@@ -36,7 +36,7 @@ from urllib.parse import parse_qs, urlsplit
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from hub import chats, flyer, gate, kinds, organisers, repeats, rep, share, store, support, tickets  # noqa: E402
+from hub import chats, day, flyer, gate, kinds, organisers, recovery, repeats, rep, share, store, support, tickets  # noqa: E402
 from reader import core  # noqa: E402
 
 STATIC = ROOT / "hub" / "static"
@@ -52,13 +52,19 @@ TYPES = {".wasm": "application/wasm", ".html": "text/html; charset=utf-8", ".js"
 EDITABLE = {"name", "summary", "description", "start_date", "start_time", "end_date", "end_time", "recurrence",
             "status", "location_name", "location_address", "location_locality", "price", "website",
             "tickets_url", "tags", "organiser", "online", "modes", "listing_kind", "slots", "requirements",
-            "chat_platform", "chat_link", "chat_link_ok", "chat_text", "festival"}
+            "chat_platform", "chat_link", "chat_link_ok", "chat_text", "festival",
+            "doors", "last_entry", "solo_meet", "care", "retreat"}  # each mode's own (his calls 2026-10-24)
+# What a place or night offers (his "I like the rest", 2026-10-24): Night shows them as care chips, Recovery matches a
+# member's needs against them on the member's own device. Keys only; the page holds the words.
+CARE = ("quiet", "water", "sober", "checking", "stepfree", "toilets", "lowsensory", "trauma", "women")
+RETREAT_ASKS = ("silence", "fasting", "substancefree", "phonesaway")
 MEMBERS_ONLY = ("chat_link", "chat_link_ok", "chat_text", "appeal_note")  # a group's link and its announcement: signed-in members only
 MODES = {"day", "night", "recovery"}
 MAX_BODY = 12 * 1024 * 1024
 ZK = os.environ.get("WHEEL_ZK_URL", "http://127.0.0.1:8792")  # zk/server.mjs, the member service (zk/run.sh)
 SELFTEST = os.environ.get("WHEEL_SELFTEST") == "1"  # serves tests/browser/selftest.html, test runs only
-ZK_PUBLIC = {("GET", "/group"), ("GET", "/count"), ("POST", "/join"), ("POST", "/showup"), ("POST", "/challenge"), ("POST", "/login")}
+ZK_PUBLIC = {("GET", "/group"), ("GET", "/count"), ("POST", "/join"), ("POST", "/showup"), ("POST", "/challenge"), ("POST", "/login"),
+             ("POST", "/vouch")}
 JOIN_FIRST = "Join The Wheel first, on the Me page. It takes one tap."
 API_ONLY = os.environ.get("WHEEL_API_ONLY") == "1"
 ORIGINS = {o.strip() for o in os.environ.get("WHEEL_ORIGINS", "").split(",") if o.strip()}
@@ -66,7 +72,8 @@ SITE = os.environ.get("WHEEL_SITE", "/")
 FUND_STEPS = [3000, 6000, 10000]  # his "4 steps" 2026-10-23: the bench test at nothing, then these three
 FUND_GOAL = float(os.environ.get("WHEEL_FUND_GOAL", "10000"))  # NZ$ toward The Wheel's own AI (his figure 2026-10-23, "say some 10knzd")  # a share link opens the listing here, at #l/<id>
 ORG_FIELDS = ("start_date", "start_time", "end_date", "end_time", "location_name", "location_address", "location_locality",
-              "price", "website", "tickets_url", "description", "status", "recurrence")  # what a proven organiser keeps right
+              "price", "website", "tickets_url", "description", "status", "recurrence",
+              "doors", "last_entry", "solo_meet", "care", "retreat")  # what a proven organiser keeps right
 STATUSES = ("confirmed", "tentative", "postponed", "cancelled")
 REPORT_REASONS = {"wrong": "The details are wrong", "over": "Cancelled, moved or over", "unsafe": "Unsafe or harmful"}
 PRIVATE_FIELDS = ("deposited_by", "deposited_account", "deposit_day")  # who added a listing never leaves the server
@@ -236,6 +243,12 @@ def clean(rec: dict, edits: dict) -> dict:
             v = v if v in ("event", "volunteer", "festival") else "event"
         elif k == "festival":
             v = clean_festival(v)
+        elif k == "care":
+            v = [c for c in CARE if c in (v if isinstance(v, list) else str(v or "").split(","))] or None
+        elif k == "retreat":
+            v = clean_retreat(v)
+        elif k == "solo_meet":
+            v = chats.scrub(re.sub(r"\s+", " ", str(v or ""))).strip()[:160] or None
         elif k == "slots":
             out = []
             for sl in v or []:
@@ -260,7 +273,7 @@ def clean(rec: dict, edits: dict) -> dict:
         raise ValueError("Pick at least one mode: Day, Night or Recovery.")
     if rec.get("start_date") and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", rec["start_date"]):
         raise ValueError("The date needs to look like 2026-10-24.")
-    for f in ("start_time", "end_time"):
+    for f in ("start_time", "end_time", "doors", "last_entry"):
         if rec.get(f) and not re.fullmatch(r"[0-2]\d:[0-5]\d", rec[f]):
             raise ValueError("Times need to look like 19:30.")
     return rec
@@ -275,6 +288,19 @@ def clean_festival(v) -> dict | None:
     tickets = [{"name": line(t.get("name"), 80), "price": line(t.get("price"), 40) or None}
                for t in (v.get("tickets") or [])[:20] if isinstance(t, dict) and line(t.get("name"), 80)]
     out = {"lineup": lineup, "tickets": tickets, **{k: line(v.get(k), 300) or None for k in ("camping", "ages", "bring", "access")}}
+    return out if any(out.values()) else None
+
+
+def clean_retreat(v) -> dict | None:
+    """A retreat's own details (R6, his "I like the rest" 2026-10-24): what it asks of you, sleep, food, what to bring."""
+    if not isinstance(v, dict):
+        return None
+    line = lambda x, n: re.sub(r"\s+", " ", str(x or "")).strip()[:n]  # noqa: E731
+    intake = line(v.get("intake"), 500) or None
+    if intake and not re.fullmatch(r"https?://[^\s<>\"']+", intake):
+        raise ValueError("The intake form needs a web address starting https://")
+    asks = [a for a in RETREAT_ASKS if a in (v.get("asks") or [])]
+    out = {"asks": asks, "intake": intake, **{k: line(v.get(k), 300) or None for k in ("sleep", "food", "bring")}}
     return out if any(out.values()) else None
 
 
@@ -466,13 +492,48 @@ def community_public(c: dict) -> dict:
     return {k: c.get(k) for k in ("id",) + COMMUNITY_FIELDS}
 
 
+def place_out(p: dict, held: dict) -> dict:
+    out = recovery.place_public(p)
+    if p["id"] in held:
+        out["claimed_by"] = held[p["id"]]
+    return out
+
+
+def vouch_counts(ids: list[str]) -> dict:
+    if not ids:
+        return {}
+    code, data = zk_call("GET", "/vouches", "ids=" + ",".join(ids[:200]))
+    try:
+        return json.loads(data).get("counts", {}) if code == 200 else {}
+    except ValueError:
+        return {}
+
+
+def practitioners(member: bool) -> list[dict]:
+    """Proven organiser accounts with a listed practice, each showing only the fields its audience allows the viewer."""
+    out = []
+    for o in db().execute("SELECT * FROM organisers WHERE verified_day IS NOT NULL AND practice IS NOT NULL"):
+        pr = json.loads(o["practice"] or "{}")
+        if not pr.get("listed") or gate.hit(GATE, o["name"]):
+            continue
+        shown = recovery.practice_shown(pr, member)
+        if any(gate.hit(GATE, str(v)) for v in shown.values()):
+            continue
+        out.append({"id": o["id"], "name": o["name"], **shown})
+    counts = vouch_counts([x["id"] for x in out])
+    for x in out:
+        x["vouches"] = counts.get(x["id"], 0)
+    return sorted(out, key=lambda x: (-x["vouches"], x["name"].lower()))
+
+
 def proven_organisers() -> list[dict]:
     held = claimed_map()
+    places = {r["id"] for r in db().execute("SELECT id FROM places")}  # a held place counts apart from listings
     out = []
     for r in db().execute("SELECT * FROM organisers WHERE verified_day IS NOT NULL ORDER BY name"):
         if gate.hit(GATE, r["name"]):
             continue
-        out.append({**organisers.public(dict(r)), "listings": sum(1 for v in held.values() if v["id"] == r["id"])})
+        out.append({**organisers.public(dict(r)), "listings": sum(1 for k, v in held.items() if v["id"] == r["id"] and k not in places)})
     return out
 
 
@@ -517,6 +578,8 @@ def listing(params: dict, member: bool = False) -> dict:
         r["tags"] = kinds.apply(r.get("tags") or [], merged)  # shown merged; the listing keeps its own words
         dated(r, today)
         r["areas"] = store.areas_for(r, all_areas)
+        if r.get("slots"):
+            r["slot_fill"] = day.fill(db(), r)  # how many took each slot; who stays with the organiser
         r["certainty"] = settle(dict(r))["certainty"]
         if r["review"].get("state") != "approved":  # a waiting listing shows how many reviews, never the running score
             r["certainty"] = {"reviews": r["certainty"]["reviews"]}
@@ -536,6 +599,8 @@ def shown_listing(eid: str) -> dict | None:
         return None
     rec["tags"] = kinds.apply(rec.get("tags") or [], store.merges(db()))
     holder = claimed_map().get(eid)
+    if rec.get("slots"):
+        rec["slot_fill"] = day.fill(db(), rec)
     if holder:
         rec["claimed_by"] = holder
         sale = tickets.sale_public(db(), eid, holder["id"]) if monero_open() else None
@@ -633,6 +698,12 @@ LOG_TEXT = {
     "org_claim_refused": "A Steward turned down a claim on {L}.",
     "org_updated": "The organiser {org} updated {fields} on {L}.",
     "org_checkin": "The organiser {org} opened check-in for {L}.",
+    "place_checked": "Reviews checked the place \u201c{name}\u201d.",
+    "place_turned_down": "Reviews turned down a place.",
+    "place_claimed": "The organiser {org} now looks after the place \u201c{name}\u201d.",
+    "place_updated": "The organiser {org} updated the place \u201c{name}\u201d.",
+    "practice_listed": "The practitioner {org} listed their practice in Recovery.",
+    "org_thanked": "The organiser {org} thanked a volunteer for a shift on {L}.",
     "org_tickets_open": "The organiser {org} opened Monero ticket sales for {L}.",
     "org_tickets_closed": "The organiser {org} closed Monero ticket sales for {L}.",
     "dup_merged": "A {by} merged a copy into {L}.",
@@ -878,8 +949,14 @@ class Handler(BaseHTTPRequestHandler):
                     claims.append({"id": r["id"], "name": r["name"], "date": r["start_date"], "state": c["state"],
                                    "listing": {k: r.get(k) for k in ORG_FIELDS + ("name", "org_note")},
                                    "tickets": tickets.sale_for_org(db(), r["id"])})
+            held_places = []
+            for c in organisers.claims_for(db(), o["id"]):
+                pl = store.place(db(), c["listing_id"])
+                if pl:
+                    held_places.append({**recovery.place_public(pl), "claim": c["state"]})
             return self.send(200, {"organiser": {**organisers.public(o), "code": o["code"], "asked": bool(o["vouch_asked"])},
-                                   "claims": claims})
+                                   "claims": claims, "practice": json.loads(o["practice"] or "{}"), "places": held_places,
+                                   "asa_code": recovery.ASA_CODE})
         m = re.fullmatch(r"/api/o/([0-9a-f]{16})", u.path)
         if m:  # an organiser as everyone sees it: name, page, proven, the listings it keeps
             o = organisers.get(db(), m.group(1))
@@ -898,6 +975,10 @@ class Handler(BaseHTTPRequestHandler):
             claims = []
             for c in organisers.claims_waiting(db()):
                 r, o = store.get(db(), c["listing_id"]), organisers.get(db(), c["organiser_id"])
+                pl = None if r else store.place(db(), c["listing_id"])
+                if pl and o:  # a place waiting for a steward: its own links stand in for a listing's
+                    claims.append({"listing": pl["id"], "name": f"{pl['name']} (a place)", "links": [x for x in (pl.get("link"), pl.get("booking")) if x],
+                                   "organiser": organisers.public(o)})
                 if r and o:
                     claims.append({"listing": r["id"], "name": r["name"], "links": [x for x in (r.get("website"), r.get("tickets_url"),
                                    (r.get("source") or {}).get("url")) if x], "organiser": organisers.public(o)})
@@ -914,6 +995,57 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, {"pending": out})
             return self.send(200, {"communities": [community_public(c) for c in store.communities(db(), "approved") if not withheld(dict(c))],
                                    "organisers": proven_organisers()})
+        if u.path == "/api/day/me":  # a member's own Day: shifts taken, crews, the skillshare lines
+            acct, t = self.need(0)
+            if acct is None:
+                return
+            return self.send(200, day.mine(db(), acct))
+        if u.path == "/api/asks":  # the ask board: open asks, newest need first
+            viewer = self.account() if self.headers.get("Authorization") else None
+            today = datetime.now(TZ).date().isoformat()
+            return self.send(200, {"asks": [a for a in day.asks_open(db(), today, viewer) if not gate.hit(GATE, a["text"] + " " + (a["area"] or ""))],
+                                   "kinds": day.ASK_KINDS, "member": bool(viewer)})
+        m = re.fullmatch(r"/api/asks/([0-9a-f]{16})/threads", u.path)
+        if m:
+            acct, t = self.need(0)
+            if acct is None:
+                return
+            a = db().execute("SELECT * FROM asks WHERE id=?", (m.group(1),)).fetchone()
+            if a is None:
+                return self.fail(404, "That ask has gone.")
+            return self.send(200, {"threads": day.threads(db(), dict(a), acct), "mine": a["account"] == acct})
+        if u.path == "/api/swap":  # the skillshare swap: counts per topic
+            return self.send(200, {"topics": [x for x in day.swap_board(db()) if not gate.hit(GATE, x["topic"])], "workshop_at": day.WORKSHOP_AT})
+        if u.path == "/api/org/crew":  # the organiser's standing crew: pen names
+            o = self.org_need()
+            if o is None:
+                return
+            return self.send(200, {"crew": day.crew_of(db(), o["id"])})
+        m = re.fullmatch(r"/api/org/shifts/([0-9a-f]{16})", u.path)
+        if m:  # who took each slot on a listing the organiser holds
+            o = self.org_need()
+            if o is None:
+                return
+            rec = store.get(db(), m.group(1))
+            if rec is None or not organisers.holds(db(), o, rec["id"]):
+                return self.fail(403, "Claim this listing first.")
+            return self.send(200, {"slots": day.who_took(db(), rec), "today": datetime.now(TZ).date().isoformat()})
+        if u.path == "/api/places":  # Recovery's places that stay; ?pending=1 for Review
+            if p.get("pending", [""])[0] == "1":
+                mine = self.account() if self.headers.get("Authorization") else None
+                out = []
+                for c in store.places(db(), "pending"):
+                    if withheld(dict(c)):
+                        continue
+                    mv = [x["verdict"] for x in store.reviews_for(db(), c["id"]) if x["account"] == mine]
+                    out.append({**recovery.place_public(c), "mine": bool(mine) and c["_account"] == mine, "my_verdict": mv[0] if mv else None})
+                return self.send(200, {"pending": out})
+            held = claimed_map()
+            return self.send(200, {"places": [place_out(c, held) for c in store.places(db(), "approved") if not withheld(dict(c))],
+                                   "kinds": recovery.PLACE_KINDS})
+        if u.path == "/api/practitioners":  # Recovery's practitioners: members see the fields kept for members
+            member = bool(self.account()) if self.headers.get("Authorization") else False
+            return self.send(200, {"practitioners": practitioners(member), "member": member})
         if u.path == "/api/duplicates":  # look-alike listings on the same day, for Review
             return self.send(200, {"pairs": duplicate_pairs()})
         if u.path == "/api/appeals":  # stewards: rank appeals waiting for a look
@@ -957,6 +1089,14 @@ class Handler(BaseHTTPRequestHandler):
             rec = shown_listing(m.group(1))
             if rec is None:
                 return self.fail(404, "That listing has gone, or is waiting for review.")
+            sk = p.get("slot", [""])[0]
+            s = day.slots_of(rec).get(sk) if sk else None
+            if s:  # one shift you took: its own times, and a reminder the day before
+                shift = {**rec, "name": f"Shift: {s.get('task') or 'helping'} at {rec['name']}", "start_date": s["date"], "end_date": None,
+                         "start_time": s.get("start"), "end_time": s.get("end"), "id": rec["id"] + sk}
+                ics = share.calendar([(shift, s["date"], share_url(base, rec["id"]))], shift["name"]).replace(
+                    b"END:VEVENT", b"BEGIN:VALARM\r\nTRIGGER:-P1D\r\nACTION:DISPLAY\r\nDESCRIPTION:Your shift tomorrow\r\nEND:VALARM\r\nEND:VEVENT")
+                return self.send(200, ics, "text/calendar; charset=utf-8", f'attachment; filename="the-wheel-shift-{sk}.ics"')
             days = share.dates_for_feed(rec) if p.get("all", [""])[0] == "1" else [share.on(rec)]  # ?all=1: every date ahead
             return self.send(200, share.calendar([(rec, d, share_url(base, rec["id"])) for d in days], rec["name"]),
                              "text/calendar; charset=utf-8", f'attachment; filename="the-wheel-{rec["id"]}.ics"')
@@ -1259,6 +1399,154 @@ class Handler(BaseHTTPRequestHandler):
                 o = organisers.get(db(), c["organiser_id"])
                 store.log(db(), "org_claim_granted" if b["action"] == "grant" else "org_claim_refused", m.group(1), org=o["name"] if o else "")
                 return self.send(200, {"ok": True})
+            m = re.fullmatch(r"/api/shifts/([0-9a-f]{16})", u.path)
+            if m:  # a member takes a slot on a volunteer listing, or leaves it
+                acct, t = self.need(0)
+                if acct is None:
+                    return
+                rec = store.get(db(), m.group(1))
+                if rec is None or rec.get("review", {}).get("state") not in ("approved", "pending"):
+                    return self.fail(404, "That listing has gone.")
+                today = datetime.now(TZ).date().isoformat()
+                if b.get("action") == "leave":
+                    day.leave(db(), rec, str(b.get("slot", "")), acct)
+                else:
+                    try:
+                        day.take(db(), rec, str(b.get("slot", "")), acct, today)
+                    except LookupError as exc:
+                        return self.fail(404, str(exc))
+                return self.send(200, {"slot_fill": day.fill(db(), rec), **day.mine(db(), acct)})
+            m = re.fullmatch(r"/api/crews/([0-9a-f]{16})", u.path)
+            if m:  # "ask me again": a member joins an organiser's standing crew, or leaves it
+                acct, t = self.need(0)
+                if acct is None:
+                    return
+                o = organisers.get(db(), m.group(1))
+                if o is None or not o["verified_day"]:
+                    return self.fail(404, "No proven organiser by that address.")
+                day.crew_set(db(), o["id"], acct, b.get("action") != "leave", datetime.now(TZ).date().isoformat())
+                return self.send(200, day.mine(db(), acct))
+            m = re.fullmatch(r"/api/org/thanks/([0-9a-f]{16})", u.path)
+            if m:  # the organiser thanks a pen name that took a slot; it counts toward their rep
+                o = self.org_need()
+                if o is None:
+                    return
+                rec = store.get(db(), m.group(1))
+                if rec is None or not organisers.holds(db(), o, rec["id"]):
+                    return self.fail(403, "Claim this listing first.")
+                try:
+                    day.thank(db(), rec, str(b.get("slot", "")), str(b.get("pen", "")), datetime.now(TZ).date().isoformat())
+                except LookupError as exc:
+                    return self.fail(404, str(exc))
+                store.log(db(), "org_thanked", rec["id"], org=o["name"])
+                return self.send(200, {"slots": day.who_took(db(), rec)})
+            if u.path == "/api/asks":  # a member posts an ask
+                acct, t = self.need(0)
+                if acct is None:
+                    return
+                today = datetime.now(TZ).date().isoformat()
+                a = day.clean_ask(b, today)
+                if gate.hit(GATE, a["text"] + " " + (a["area"] or "")):
+                    return self.fail(400, HELD)
+                if store.count_deposit(db(), "ask:" + acct, today) > day.ASKS_A_DAY:
+                    return self.fail(429, "That's three asks today. More tomorrow.")
+                aid = secrets.token_hex(8)
+                db().execute("INSERT INTO asks(id, account, kind, text, area, by_day, day) VALUES(?,?,?,?,?,?,?)",
+                             (aid, acct, a["kind"], a["text"], a["area"], a["by_day"], today))
+                db().commit()
+                return self.send(200, {"saved": aid})
+            m = re.fullmatch(r"/api/asks/([0-9a-f]{16})", u.path)
+            if m:  # a message in an ask's thread, or the asker closing it
+                acct, t = self.need(0)
+                if acct is None:
+                    return
+                a = db().execute("SELECT * FROM asks WHERE id=?", (m.group(1),)).fetchone()
+                if a is None:
+                    return self.fail(404, "That ask has gone.")
+                if b.get("action") == "close":
+                    if a["account"] != acct:
+                        return self.fail(403, "Only whoever asked can close it.")
+                    db().execute("UPDATE asks SET state='closed' WHERE id=?", (a["id"],))
+                    db().commit()
+                    return self.send(200, {"closed": True})
+                if store.count_deposit(db(), "msg:" + acct, datetime.now(TZ).date().isoformat()) > day.MSGS_A_DAY:
+                    return self.fail(429, "That's thirty messages today. More tomorrow.")
+                try:
+                    day.send(db(), dict(a), acct, str(b.get("to") or "") or None, b.get("text"), int(time.time()))
+                except LookupError as exc:
+                    return self.fail(404, str(exc))
+                return self.send(200, {"threads": day.threads(db(), dict(a), acct)})
+            if u.path == "/api/swap":  # a member's skillshare line: can teach or wants to learn
+                acct, t = self.need(0)
+                if acct is None:
+                    return
+                if b.get("on") and gate.hit(GATE, str(b.get("topic", ""))):
+                    return self.fail(400, HELD)
+                day.swap_set(db(), acct, str(b.get("topic", "")), str(b.get("side", "")), bool(b.get("on")), datetime.now(TZ).date().isoformat())
+                return self.send(200, {**day.mine(db(), acct), "topics": day.swap_board(db())})
+            if u.path == "/api/places":  # a member adds a place that stays; it waits for review (his ruling 2026-10-24)
+                acct, t = self.need(0)
+                if acct is None:
+                    return
+                day = datetime.now(TZ).date().isoformat()
+                if store.count_deposit(db(), "place:" + acct, day) > 3:
+                    return self.fail(429, "That's three places today. More tomorrow.")
+                rec = {"id": secrets.token_hex(8), **recovery.clean_place(b, CARE)}
+                store.place_put(db(), rec, "pending", acct, day)
+                return self.send(200, {"saved": rec["id"]})
+            m = re.fullmatch(r"/api/places/([0-9a-f]{16})", u.path)
+            if m:  # a review of a place, weighted like a listing's
+                acct, t = self.need(0)
+                if acct is None:
+                    return
+                c = store.place(db(), m.group(1))
+                if c is None or c["state"] != "pending":
+                    return self.fail(404, "That place has been decided. Reload Review.")
+                if c["_account"] == acct:
+                    return self.fail(403, "You added this one, so someone else checks it.")
+                if b.get("action") not in ("approve", "reject"):
+                    return self.fail(400, "Pick right or wrong.")
+                store.cast_review(db(), c["id"], acct, b["action"], rep.WEIGHT[t], datetime.now(TZ).date().isoformat())
+                revs = store.reviews_for(db(), c["id"])
+                cf, ca = rep.certainty([r["weight"] for r in revs if r["verdict"] == "approve"], [r["weight"] for r in revs if r["verdict"] == "reject"])
+                state = rep.settled_state(cf, ca)
+                if state != "pending":
+                    store.place_put(db(), {k: v for k, v in c.items() if k not in ("state", "_account")}, state)
+                    store.log(db(), "place_checked" if state == "approved" else "place_turned_down", name=c["name"])
+                return self.send(200, {"state": state, "certainty": {"for": cf, "against": ca, "reviews": len(revs)}})
+            if u.path == "/api/org/practice":  # the practitioner's profile: every field with its own audience
+                o = self.org_need()
+                if o is None:
+                    return
+                pr = recovery.clean_practice(b)
+                was = json.loads(o["practice"] or "{}").get("listed")
+                db().execute("UPDATE organisers SET practice=? WHERE id=?", (json.dumps(pr), o["id"]))
+                db().commit()
+                if pr["listed"] and not was and o["verified_day"]:
+                    store.log(db(), "practice_listed", org=o["name"])
+                return self.send(200, {"practice": pr})
+            m = re.fullmatch(r"/api/org/place/([0-9a-f]{16})", u.path)
+            if m:  # an organiser claims a place, or keeps a held one right
+                o = self.org_need()
+                if o is None:
+                    return
+                pl = store.place(db(), m.group(1))
+                if pl is None or pl["state"] != "approved":
+                    return self.fail(404, "That place is still waiting for review, or gone.")
+                if b.get("action") == "claim":
+                    try:
+                        st = organisers.claim(db(), o, {"id": pl["id"], "website": pl.get("link"), "tickets_url": pl.get("booking")})
+                    except PermissionError as exc:
+                        return self.fail(403, str(exc))
+                    if st == "claimed":
+                        store.log(db(), "place_claimed", org=o["name"], name=pl["name"])
+                    return self.send(200, {"state": st})
+                if not organisers.holds(db(), o, pl["id"]):
+                    return self.fail(403, "Claim this place first.")
+                fixed = {"id": pl["id"], **recovery.clean_place({**pl, **{k: v for k, v in b.items() if k != "action"}}, CARE)}
+                store.place_put(db(), fixed, "approved")
+                store.log(db(), "place_updated", org=o["name"], name=fixed["name"])
+                return self.send(200, {"place": recovery.place_public(fixed)})
             if u.path == "/api/communities":  # a member adds a community; it waits for review
                 acct, t = self.need(0)
                 if acct is None:

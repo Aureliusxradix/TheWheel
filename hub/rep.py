@@ -5,7 +5,8 @@ a ban resets rank. PROVISIONAL: four questions are still open (show-ups toward t
 cheating, paid promotion).
 
 - Rep comes only from outcomes others confirm: a deposit that passes review, a review that agrees with how the
-  listing settled. Weekly caps. Show-ups are not counted here: by design a show-up cannot be tied to a pen name.
+  listing settled, and (2026-10-24, Day's "thanks that count") a shift the organiser holding the listing thanked you
+  for. Weekly caps. Thanks count toward Regular and never toward Reviewer, so no organiser can raise review weight. Show-ups are not counted here: by design a show-up cannot be tied to a pen name.
 - A review's weight is fixed when it is cast (the reviewer's tier then), so a listing's certainty never
   depends on rep earned afterwards.
 - Certainty that a listing is right: 1 - (1 - w1)(1 - w2)... over the approving reviews; the same for rejecting.
@@ -54,8 +55,11 @@ def _week(day: str) -> str:
     return f"{y}-{w}"
 
 
-def points(db, account: str) -> int:
-    """Rep from confirmed outcomes, capped per week."""
+THANKS_POINTS, THANKS_WEEK_CAP = 2, 3
+
+
+def points(db, account: str, thanks: bool = True) -> int:
+    """Rep from confirmed outcomes, capped per week. thanks=False leaves out thanked shifts (the Reviewer part)."""
     total = 0
     by_week: dict[tuple[str, str], int] = {}
 
@@ -82,6 +86,9 @@ def points(db, account: str) -> int:
             continue  # unsettled: no rep either way yet
         agreed = (row["verdict"] == "approve") == (row["state"] == "approved")
         add("review", row["day"], REVIEW_POINTS if agreed else REVIEW_PENALTY, REVIEW_WEEK_CAP)
+    if thanks:
+        for row in db.execute("SELECT thanked_day FROM shift_claims WHERE account=? AND thanked=1 AND thanked_day > ?", (account, since)):
+            add("thanks", row["thanked_day"], THANKS_POINTS, THANKS_WEEK_CAP)
     return total
 
 
@@ -93,7 +100,7 @@ def tier(db, account: str) -> int:
         return 3
     p = points(db, account)
     age = (date.today() - date.fromisoformat(row["first_day"])).days
-    review_part = p  # v1: listings and reviews are the only sources, so all of p counts toward Reviewer
+    review_part = points(db, account, thanks=False)  # listings and reviews only: thanks never raise review weight
     earned = 2 if p >= 30 and review_part >= 20 else 1 if p >= 10 and age >= 14 else 0
     return max(earned, row["granted_tier"] or 0)  # a tier given by hand (his ask 2026-10-21) is a floor; a ban clears it
 

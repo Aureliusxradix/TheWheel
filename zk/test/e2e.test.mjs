@@ -135,3 +135,23 @@ test("a door code that changes every minute", async (t) => {
   const pc = await prove(c, members, doorMessage(fresh), showupScope(EV))
   assert.deepEqual(await w.showup(EV, fresh, pc), { ok: true, count: 2 })
 })
+
+test("vouches: one per member per practitioner, nothing else accepted", async (t) => {
+  t.after(async () => { await globalThis.curve_bn128?.terminate?.() })
+  const { vouchScope, VOUCH_MESSAGE } = await import("../core.mjs")
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wheel-v-"))
+  const w = new Wheel(dir)
+  const [a, b] = ["va", "vb"].map((s) => new Identity(`secret-${s}`))
+  for (const id of [a, b]) w.join(id.commitment.toString())
+  const members = w.group().members
+  const P = "aaaaaaaaaaaaaaaa", Q = "bbbbbbbbbbbbbbbb"
+  assert.deepEqual(await w.vouch(P, await prove(a, members, VOUCH_MESSAGE, vouchScope(P))), { ok: true, count: 1 })
+  assert.equal((await w.vouch(P, await prove(a, members, VOUCH_MESSAGE, vouchScope(P)))).why, "again", "once per member")
+  assert.equal((await w.vouch(Q, await prove(a, members, VOUCH_MESSAGE, vouchScope(P)))).why, "scope", "a vouch fits its practitioner")
+  assert.equal((await w.vouch(P, await prove(b, members, "1", vouchScope(P)))).why, "message")
+  assert.equal((await w.vouch(Q, await prove(a, members, VOUCH_MESSAGE, vouchScope(Q)))).ok, true, "the same member, another practitioner")
+  assert.deepEqual(w.vouchCounts([P, Q, "nope"]), { [P]: 1, [Q]: 1 })
+  assert.deepEqual(new Wheel(dir).vouchCounts([P]), { [P]: 1 }, "kept on disk")
+  const kept = fs.readFileSync(path.join(dir, "vouches.json"), "utf8")
+  assert.ok(!kept.includes(a.commitment.toString()), "the store keeps nullifiers, never who")
+})

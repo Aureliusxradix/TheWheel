@@ -8,6 +8,7 @@
 //   - any timestamp beside a commitment (a join lands at a random place in the list)
 //   - any door code in plain text (only its hash, and only while the check-in is open; a code that changes every
 //     minute keeps the secret it is derived from, also only while the check-in is open)
+//   - any link between a vouch and a member: per practitioner, only the nullifiers (2026-10-24)
 //   - any link between a show-up and a member: the store keeps per event only the nullifiers,
 //     which differ for the same person from one event to the next
 import { createHash, createHmac, randomBytes, randomInt } from "node:crypto"
@@ -40,6 +41,10 @@ export const doorMessage = (code) => toField(`wheel-door:${String(code).trim().t
 // here is the same every time and serves as their pen name inside The Wheel. It differs from every show-up nullifier
 // (scoped per event), so a pen name cannot be joined to where its owner checked in.
 export const ACCOUNT_SCOPE = toField("wheel-account")
+// Vouches for practitioners (his calls 2026-10-24, "ZKP first"): scoped per practitioner, so one member vouches once for
+// each, and a vouch's nullifier differs from the member's pen name and from every show-up.
+export const vouchScope = (pid) => toField(`wheel-vouch:${pid}`)
+export const VOUCH_MESSAGE = toField("wheel-vouch")
 export const accountId = (nullifier) => sha256hex(`wheel-pen:${nullifier}`).slice(0, 16)
 export const NONCE_TTL_MS = 5 * 60 * 1000
 export const SESSION_TTL_MS = 12 * 60 * 60 * 1000
@@ -53,6 +58,7 @@ export class Wheel {
     this.roots = this.#load("roots.json", [])
     this.checkins = this.#load("checkins.json", {})
     this.showups = this.#load("showups.json", {})
+    this.vouches = this.#load("vouches.json", {})
   }
   #load(name, empty) {
     try { return JSON.parse(fs.readFileSync(path.join(this.dir, name), "utf8")) } catch { return empty }
@@ -167,6 +173,28 @@ export class Wheel {
     const s = token && this.sessions?.get(String(token))
     if (!s || s.exp < this.clock().getTime()) return null
     return { account: s.account }
+  }
+
+  async vouch(practitionerId, proof) {
+    const id = String(practitionerId ?? "")
+    if (!/^[0-9a-f]{16}$/.test(id)) return { ok: false, why: "practitioner" }
+    if (!proof || typeof proof !== "object") return { ok: false, why: "proof" }
+    if (String(proof.scope) !== vouchScope(id)) return { ok: false, why: "scope" }
+    if (String(proof.message) !== VOUCH_MESSAGE) return { ok: false, why: "message" }
+    if (!this.roots.includes(String(proof.merkleTreeRoot))) return { ok: false, why: "root" }
+    const seen = (this.vouches[id] ||= [])
+    const nullifier = String(proof.nullifier)
+    if (seen.includes(nullifier)) return { ok: false, why: "again", count: seen.length }
+    let valid = false
+    try { valid = await verifyProof(proof) } catch { valid = false }
+    if (!valid) return { ok: false, why: "proof" }
+    seen.push(nullifier)
+    this.#save("vouches.json", this.vouches)
+    return { ok: true, count: seen.length }
+  }
+
+  vouchCounts(ids) {
+    return Object.fromEntries(ids.filter((i) => /^[0-9a-f]{16}$/.test(i)).map((i) => [i, (this.vouches[i] || []).length]))
   }
 
   count(eventId) {

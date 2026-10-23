@@ -10,6 +10,7 @@ import { generateProof } from "@semaphore-protocol/proof"
 
 const KEY = "wheel.master"
 const SHOWUPS = "wheel.showups"
+const VOUCHES = "wheel.vouches"
 const FIELD = 21888242871839275222717131064758314466096019186001779448845833037201683149097n
 
 const store = {
@@ -103,6 +104,27 @@ export function createWheel({ api, zk }) {
       }
       return { ok: false, why: r.json?.why || "offline", count: r.json?.count }
     },
+    async vouch(practitioner) {  // one per member per practitioner; the device keeps its own list of whom it vouched for
+      const id = await identity(false)
+      if (!id) return { ok: false, why: "nokey" }
+      const g = await call("/group")
+      if (g.status !== 200) return { ok: false, why: "offline" }
+      if (!g.json.members.includes(id.commitment.toString())) return { ok: false, why: "notmember" }
+      const group = new Group(g.json.members.map(BigInt))
+      const depth = Math.max(1, group.depth)
+      const proof = await generateProof(id, group, await toField("wheel-vouch"), await toField(`wheel-vouch:${practitioner}`), depth, {
+        wasm: `${zk}semaphore-${depth}.wasm`,
+        zkey: `${zk}semaphore-${depth}.zkey`,
+      })
+      const r = await call("/vouch", { practitioner, proof })
+      if (r.status === 200 || r.json?.why === "again") {
+        const mine = JSON.parse(store.get(VOUCHES) || "[]")
+        if (!mine.includes(practitioner)) mine.push(practitioner)
+        store.set(VOUCHES, JSON.stringify(mine))
+      }
+      return r.status === 200 ? { ok: true, count: r.json.count } : { ok: false, why: r.json?.why || "offline", count: r.json?.count }
+    },
+    vouched: () => JSON.parse(store.get(VOUCHES) || "[]"),
     async login() {
       const id = await identity(false)
       if (!id) return { ok: false, why: "nokey" }

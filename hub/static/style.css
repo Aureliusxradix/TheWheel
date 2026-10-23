@@ -464,7 +464,7 @@ html[data-ui="simple"] .filters .search { grid-column: 1; }
 html[data-ui="simple"] .ranges { grid-column: 1 / -1; flex-wrap: wrap; }
 html[data-ui="simple"] .ranges button { flex: none; }
 html[data-ui="simple"] .filter-btn { display: inline-block; grid-column: 2; grid-row: 1; padding: 0 1em; font-size: .74rem; }
-html[data-ui="simple"] #view-mode:not(.filters-open) :is(#terms, #facet-row, #kind-row, #area-row, .toggles, .pickday, [data-onlymode]) { display: none; }
+html[data-ui="simple"] #view-mode:not(.filters-open) :is(#terms, #facet-row, #kind-row, #area-row, #mine-row, .toggles, .pickday, [data-onlymode]) { display: none; }
 html[data-ui="simple"] #view-mode.filters-open .filter-btn { color: var(--accent); border-color: var(--accent); }
 
 /* slim cards: name, when, where, price and the state; everything else once the listing is opened */
@@ -692,3 +692,70 @@ button.ticket-badge.xmr::before { content: "ɱ"; font-weight: 700; }
 .door-tix { width: 100%; text-align: start; }
 .door-tix input { text-transform: uppercase; letter-spacing: .1em; }
 .status.ok { color: var(--accent); font-weight: 700; }
+
+/* each mode's own, round one (2026-10-24) */
+.mine-row:empty { display: none; }
+.mine-row .skill-add { display: inline-flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
+.mine-row .skill-add input { min-width: 0; width: 15rem; max-width: 100%; }
+.mine-hint { flex-basis: 100%; font-size: .85rem; opacity: .85; }
+.chip.fits { border-color: currentColor; }
+.chip.care { font-style: italic; }
+.night-times { display: flex; flex-wrap: wrap; gap: .2rem .9rem; font-size: .88rem; font-weight: 700; }
+.solo-line { font-size: .9rem; }
+.dayafter-link { font-size: .85rem; }
+.soon { display: grid; gap: .25rem; padding: .7rem .9rem; margin: 0 0 1rem; border: 1px solid var(--accent); border-radius: 10px; }
+.soon b { font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.soon a { color: inherit; }
+.dayafter-banner { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; justify-content: space-between; padding: .7rem .9rem; margin: 0 0 1rem; border: 1px solid var(--accent); border-radius: 10px; }
+.dayafter-banner p { margin: 0; }
+.care-pick { display: flex; flex-wrap: wrap; gap: .3rem 1rem; border: 0; padding: 0; margin: .6rem 0; }
+.care-pick legend { font-weight: 700; padding: 0; margin-bottom: .3rem; }
+.night-extra, .retreat-extra { margin-top: .6rem; }
+.retreat-details { display: grid; gap: .25rem; margin: .5rem 0; }
+
+/* Recovery's own, round two (2026-10-24): places and practitioners */
+.rec-seg { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 0 .9rem; }
+.rec-seg button { font: inherit; font-size: .9rem; padding: .45rem .9rem; border-radius: 999px; border: 1px solid currentColor; background: transparent; color: inherit; cursor: pointer; min-height: 44px; }
+.rec-seg button.on { background: var(--accent); color: var(--ground); border-color: var(--accent); font-weight: 700; }
+#view-mode.seg-other :is(#ranges, #terms, #facet-row, #kind-row, #area-row, #mine-row, .toggles, #follow, .filter-btn, .search) { display: none; }
+.place, .practitioner { display: grid; gap: .4rem; padding: 1rem; margin: 0 0 .8rem; border: 1px solid var(--soft-rule); border-radius: 12px; }
+.place-head { display: flex; flex-wrap: wrap; gap: .4rem .8rem; align-items: baseline; }
+.place-head h3 { margin: 0; font-size: 1.15rem; }
+.open-state { margin: 0; font-weight: 700; }
+.open-state.is-open { color: var(--accent); }
+.sessions { margin: 0; padding-left: 1.1rem; }
+table.hours { border-collapse: collapse; font-size: .9rem; }
+table.hours th { text-align: left; font-weight: 400; padding: .1rem 1rem .1rem 0; }
+.contact { display: flex; flex-wrap: wrap; gap: .3rem 1.2rem; }
+.contact .sel { user-select: all; }
+.place-chips { margin-bottom: .8rem; }
+.prac-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .2rem .5rem; align-items: end; margin: .4rem 0; }
+.prac-field label { grid-column: 1 / -1; }
+.prac-field select { min-height: 44px; }
+.hours-pick { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .3rem .6rem; align-items: center; border: 0; padding: 0; margin: .6rem 0; }
+.hours-pick legend { font-weight: 700; margin-bottom: .3rem; padding: 0; }
+.practice summary h2, .org-places summary h2 { display: inline; }
+.place .meta, .practitioner .meta { display: flex; flex-wrap: wrap; gap: .2rem 1rem; }
+.place p, .practitioner p { margin: 0; }
+
+/* Day's own, round three (2026-10-24): shifts taken, crews, asks, the skillshare swap */
+.seats i.on, [data-look="day"] .seats i.on { background: currentColor; }
+.shift-act { margin-top: .3rem; display: flex; flex-wrap: wrap; gap: .2rem .6rem; align-items: center; }
+.crew-line { margin: .4rem 0; }
+.ask { display: grid; gap: .4rem; padding: 1rem; margin: 0 0 .8rem; border: 2px solid currentColor; border-radius: 12px; }
+.ask p { margin: 0; }
+.thread { display: grid; gap: .35rem; padding: .6rem 0; border-top: 1px solid var(--soft-rule); }
+.msg { margin: 0; padding: .4rem .7rem; border-radius: 10px; border: 1px solid var(--soft-rule); max-width: 85%; justify-self: start; }
+.msg.me { justify-self: end; background: var(--accent); color: var(--ground); border-color: var(--accent); }
+ul.swap, ul.swap-mine { list-style: none; padding: 0; display: grid; gap: .5rem; }
+.swap-row { display: flex; flex-wrap: wrap; gap: .3rem .9rem; align-items: baseline; padding: .6rem 0; border-top: 1px solid var(--soft-rule); }
+.swap-row.ready b::after { content: " ✓"; }
+.who-slot ul { margin: .2rem 0 .6rem; padding-left: 1.1rem; }
+@media (max-width: 40rem) {  /* on a phone each shift stacks: when, task, people and the button under them */
+  .shifts { min-width: 0; width: 100%; }
+  .shifts thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .shifts tbody, .shifts tr, .shifts td { display: block; }
+  .shifts tr { padding: .45rem 0; border-bottom: 1px solid var(--soft-rule); }
+  .shifts td, [data-look="day"] .shifts td { border: 0; padding: .1rem 0; }
+  .shifts td:first-child { font-weight: 700; }
+}

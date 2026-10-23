@@ -296,10 +296,16 @@ function helpWith(ev) {
 }
 
 /* ---------- mode views ---------- */
+async function loadDayMe() {  // a member's own shifts, crews and skillshare lines, for Day's buttons
+  if (!(window.createWheel && W?.session())) { state.dayMe = null; return; }
+  try { state.dayMe = await api("/api/day/me"); } catch { state.dayMe = null; }
+}
+
 async function loadEvents() {
   const unreviewed = $("#unreviewed").checked ? "1" : "0";
   const data = await api(`/api/events?unreviewed=${unreviewed}`);
   Object.assign(state, { events: data.events, areas: data.areas, today: data.today });
+  await loadDayMe();
   const note = $("#offline-note");  // the app's saved copy, while offline (sw.js marks it)
   note.hidden = !data.offline;
   if (data.offline) note.textContent = `You're offline. This is the list as it was at ${new Date(data.at).toLocaleString("en-NZ", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}.`;
@@ -317,7 +323,7 @@ function renderHead() {
 
 // Simple keeps the filters behind one button; its label counts the ones in use
 function filterLabel() {
-  const n = [state.kind, state.area, state.facet, state.favOnly, state.range === "date", $("#archive").checked, !$("#unreviewed").checked].filter(Boolean).length;
+  const n = [state.kind, state.area, state.facet, state.favOnly, state.fitsOnly, state.range === "date", $("#archive").checked, !$("#unreviewed").checked].filter(Boolean).length;
   $("#filter-btn").textContent = n ? `Filters · ${n} on` : "Filters";
 }
 
@@ -329,6 +335,7 @@ function renderMode() {
     `<label class="pickday${state.range === "date" ? " on" : ""}">On a date <input type="date" id="pickday" min="${state.today}" value="${state.range === "date" ? state.date : ""}"></label>` +
     (state.range === "date" ? `<button type="button" data-onlymode="1" class="${state.dateOnlyMode ? "on" : ""}" aria-pressed="${state.dateOnlyMode}">Only ${m.title}</button>` : "");
   $("#mode-lede").textContent = allModes() ? `Everything on ${fmtShort(state.date)}: Day, Night and Recovery together.` : m.lede;
+  renderSegRow();
   renderTerms();
   renderChips();
   renderList();
@@ -388,6 +395,7 @@ function renderChips() {
   $("#kind-row").innerHTML = `<span class="rowlabel">Kinds</span>${mine}` + kinds.map(([t, n]) =>
     `<span class="kchip"><button type="button" class="tag${state.kind === t ? " on" : ""}" data-kind="${esc(t)}">${esc(t)}<small>${n}</small></button><button type="button" class="star${favs.has(t) ? " on" : ""}" data-fav="${esc(t)}" aria-pressed="${favs.has(t)}" aria-label="${favs.has(t) ? "Remove from" : "Add to"} my kinds: ${esc(t)}">${favs.has(t) ? "★" : "☆"}</button></span>`).join("") + more;
   $("#area-row").innerHTML = chipRow("Areas", state.areas.map((a) => [a.name, null]), "area", state.area);
+  renderMine();
 }
 
 const allModes = () => state.range === "date" && !state.dateOnlyMode;  // a date alone: every mode at once
@@ -399,6 +407,9 @@ function matches(ev) {
   if (state.area && !(ev.areas || []).includes(state.area)) return false;
   if (state.facet && state.mode === "day" && !helpWith(ev).includes(state.facet)) return false;
   if (state.facet && state.mode === "recovery" && lengthOf(ev) !== state.facet) return false;
+  if (state.fitsOnly && state.mode === "day" && !fitsSkills(ev)) return false;
+  if (state.fitsOnly && state.mode === "recovery" && !fitsNeeds(ev)) return false;
+  if (state.dayAfter && state.mode === "recovery" && !(on(ev) <= state.dayAfter.date && onEnd(ev) >= state.dayAfter.date)) return false;
   if ((state.range === "date" || !ev.past) && !inRange(ev)) return false;
   if (!q) return true;
   const hay = [ev.name, ev.summary, ev.description, ev.location_name, ev.location_locality, ev.organiser,
@@ -414,9 +425,16 @@ function when(ev) {
 
 function shiftsTable(ev) {
   if (!(ev.slots || []).length) return "";
+  const fill = ev.slot_fill || [], mineKeys = new Set((state.dayMe?.slots || []).filter((x) => x.listing === ev.id).map((x) => x.key));
   return `<div class="shifts-wrap"><table class="shifts"><thead><tr><th scope="col">When</th><th scope="col">Task</th><th scope="col">People</th></tr></thead><tbody>` +
-    ev.slots.map((s) => `<tr><td>${esc(fmtShort(s.date))}, ${esc(s.start || "")}${s.end ? "–" + esc(s.end) : ""}</td><td>${esc(s.task || "")}</td><td>${s.needed ? `<span class="seats" aria-hidden="true">${"<i></i>".repeat(Math.min(s.needed, 20))}</span>${s.needed}` : "?"}</td></tr>`).join("") +
-    `</tbody></table></div>`;
+    ev.slots.map((s, i) => {
+      const f = fill[i] || {}, taken = f.taken || 0, full = s.needed && taken >= s.needed, mine = mineKeys.has(f.key);
+      const seats = s.needed ? `<span class="seats" aria-hidden="true">${Array.from({ length: Math.min(s.needed, 20) }, (_, j) => `<i class="${j < taken ? "on" : ""}"></i>`).join("")}</span>${taken} of ${s.needed}` : `${taken} so far`;
+      const act = ev.past || s.date < state.today || !f.key ? ""
+        : mine ? `<span class="hint">✓ You're on it</span> <a class="linklike" href="${API}/api/ics/${ev.id}.ics?slot=${f.key}" rel="nofollow">Calendar</a> <button type="button" class="linklike" data-shift="leave" data-lid="${ev.id}" data-slot="${f.key}">Leave</button>`
+        : full ? `<span class="hint">Full</span>` : `<button type="button" class="quiet" data-shift="take" data-lid="${ev.id}" data-slot="${f.key}">Take it</button>`;
+      return `<tr><td>${esc(fmtShort(s.date))}, ${esc(s.start || "")}${s.end ? "–" + esc(s.end) : ""}</td><td>${esc(s.task || "")}</td><td>${seats}${act ? `<div class="shift-act">${act}</div>` : ""}</td></tr>`;
+    }).join("") + `</tbody></table></div>`;
 }
 
 // The same event added once per date stays as separate listings (his call 2026-10-23), each linked to its next dates
@@ -481,6 +499,10 @@ function eventRow(ev, i = 0) {
   const volunteer = ev.listing_kind === "volunteer";
   const chips = [];
   if (volunteer) chips.push(`<span class="chip strong">Helpers wanted</span>`);
+  if (state.mode === "day" && fitsSkills(ev)) chips.push(`<span class="chip strong fits">✓ Fits you</span>`);
+  if (state.mode === "day" && ev.claimed_by && (state.dayMe?.crews || []).includes(ev.claimed_by.id)) chips.push(`<span class="chip strong">From your crew</span>`);
+  if (state.mode === "recovery" && fitsNeeds(ev)) chips.push(`<span class="chip strong fits">✓ Fits your needs</span>`);
+  if (state.mode === "night" || allModes()) (ev.care || []).filter((c) => NIGHT_CARE.includes(c)).forEach((c) => chips.push(`<span class="chip care">${esc(CARE[c])}</span>`));
   if (ev.chat_platform) chips.push(`<span class="chip">${esc(CHAT[ev.chat_platform] ? `${CHAT[ev.chat_platform]} group` : "Group chat")}</span>`);
   if (ev.recurrence) chips.push(`<span class="chip">Repeats: ${esc(ev.recurrence.slice(0, 50))}</span>`);
   if (ev.recurrence && !ev.next_date && onEnd(ev) < state.today) chips.push(`<span class="chip">Next date: check the link</span>`);
@@ -506,6 +528,7 @@ function eventRow(ev, i = 0) {
       ${fest ? `${banner}<div class="fest-head"><span class="chip strong">Festival${fr.days > 1 ? ` · ${fr.days} days` : ""}</span><span class="fest-dates">${esc(fr.text)}</span></div>` : ""}
       <button type="button" class="ev-name" aria-expanded="false" data-open="${ev.id}">${esc(ev.name)}</button>
       <div class="meta"><span>${esc(when(ev))}</span>${where ? `<span>${esc(where)}</span>` : ""}${ev.price ? `<span>${esc(ev.price)}</span>` : ""}</div>
+      ${nightLines(ev)}
       ${ev.past ? "" : ticketBadge(ev)}
       ${ev.past || !ev.xmr_tickets ? "" : ev.xmr_tickets.left > 0
         ? `<div class="xmr-buy"><button type="button" class="ticket-badge xmr" data-xmrbuy="${ev.id}" aria-expanded="false">Pay in Monero, NZ$${esc(fmtNzd(ev.xmr_tickets.nzd))}</button><div class="xmr-tix" hidden></div></div>`
@@ -521,6 +544,9 @@ function eventRow(ev, i = 0) {
       <div class="more" hidden>
         ${ev.description ? `<p>${esc(ev.description)}</p>` : ""}
         ${fest ? festivalDetails(ev) : ""}
+        ${retreatDetails(ev)}
+        ${crewLine(ev)}
+        ${nightMore(ev)}
         ${ev.claimed_by ? `<div>Kept up to date by <a href="#o/${esc(ev.claimed_by.id)}">${esc(ev.claimed_by.name)}</a>, a proven organiser</div>`
           : ev.organiser ? `<div>Organised by ${esc(ev.organiser)}</div>` : ""}
         ${whereFrom(ev)}
@@ -606,6 +632,7 @@ function grouped(list) {
 }
 
 function renderList() {
+  if (recSegOn()) { renderRecSeg(); return; }  // Recovery's places and practitioners take the list's place
   const key = (e) => on(e) + (e.start_time || "");
   const shown = state.events.filter(matches);
   const upcoming = shown.filter((e) => !e.past).sort((a, b) => key(a).localeCompare(key(b)));
@@ -617,6 +644,8 @@ function renderList() {
     if (shifts.length) html += `<h2 class="month">Helpers wanted</h2>` + shifts.map((e, i) => eventRow(e, i)).join("");
     if (rest.length) html += (shifts.length ? `<h2 class="month">On in the day</h2>` + rest.map((e, i) => eventRow(e, i)).join("") : grouped(rest));
   } else {
+    if (state.mode === "night" && !allModes()) html += startingSoon(upcoming);
+    if (state.mode === "recovery" && state.dayAfter) html += `<div class="dayafter-banner"><p><b>The day after ${esc(state.dayAfter.name)}.</b> What’s on in Recovery on ${esc(fmtShort(state.dayAfter.date))}.</p><button type="button" class="quiet" data-cleardayafter="1">Show everything</button></div>`;
     html += grouped(upcoming);
   }
   if (past.length) html += `<h2 class="month archive-head">Already happened</h2>` + past.map((e, i) => eventRow(e, i)).join("");
@@ -749,6 +778,7 @@ function editorHtml(ev, prefix) {
         <div><label for="${prefix}-access">Access</label><input id="${prefix}-access" data-f="access" value="${esc(f.access || "")}" placeholder="Wheelchair access to the main stage"></div>
       </div>
     </div>
+    ${modeExtrasEditor(ev, prefix)}
     <details class="chat-pick"${ev.chat_platform ? " open" : ""}><summary>Organised in a group chat?</summary>
       <label for="${prefix}-cp">The app</label>
       <select id="${prefix}-cp" data-k="chat_platform"><option value="">(leave empty)</option>${Object.entries(CHAT).map(([k, n]) =>
@@ -786,6 +816,8 @@ function readEditor(card) {
       camping: val("camping"), ages: val("ages"), bring: val("bring"), access: val("access"),
     };
   } else out.festival = null;
+  out.care = $$("[data-care]", card).filter((c) => c.checked).map((c) => c.dataset.care);
+  out.retreat = readRetreat(card);
   return out;
 }
 
@@ -940,6 +972,7 @@ async function loadReview() {
   loadOrgWaiting().catch(() => {});
   loadDupes().catch(() => {});
   loadCommsWaiting().catch(() => {});
+  loadPlacesWaiting().catch(() => {});
   setCount(events.filter(toCheck).length);
   reviewQueue = events;
   renderReview();
@@ -1115,7 +1148,7 @@ function route() {
   const view = (location.hash.slice(1) || "night").split("/")[0];
   if (view === "l") { openShared(location.hash.slice(1).split("/")[1]).catch((e) => toast(e.message)); return; }
   const isMode = view in MODES;
-  if (isMode && state.mode !== view) { state.mode = view; state.facet = null; state.kind = null; }
+  if (isMode && state.mode !== view) { state.mode = view; state.facet = null; state.kind = null; state.fitsOnly = false; if (view !== "recovery") state.dayAfter = null; }
   setLook(MODES[state.mode].look);
   $("#view-mode").hidden = !isMode;
   $$(".view").forEach((v) => { if (v.id !== "view-mode") v.hidden = v.id !== `view-${view}`; });
@@ -1136,6 +1169,10 @@ function route() {
   if (view === "org") { (state.events.length ? Promise.resolve() : api("/api/events?unreviewed=1").then((d) => (state.events = d.events))).then(loadOrg).catch((e) => ($("#org-body").innerHTML = `<p class="status err">${esc(e.message)}</p>`)); }
   if (view === "o") loadPublicOrg(location.hash.slice(1).split("/")[1]);
   if (view === "log") loadLog().catch((e) => ($("#modlog").innerHTML = `<li class="status err">${esc(e.message)}</li>`));
+  if (view === "add" && state.draftWorkshop) {  // a teacher drafting from the skillshare swap
+    $("#add-text").value = `Skillshare workshop: ${state.draftWorkshop}. Taught by a member for the people who asked to learn it. Date, time, place and what to bring: `;
+    state.draftWorkshop = null;
+  }
   if (view === "me") { loadMe().catch((e) => ($("#me-body").innerHTML = `<p class="status err">${esc(e.message)}</p>`)); loadMyTickets(); }
 }
 
@@ -1535,7 +1572,8 @@ async function orgApi(path, body) {
   return data;
 }
 const ORG_EDIT = [["start_date", "Date (2026-10-24)"], ["start_time", "Starts (19:30)"], ["end_time", "Ends at"], ["location_name", "Place"],
-  ["location_locality", "Town or suburb"], ["price", "Price"], ["tickets_url", "Tickets (a link)"], ["recurrence", "Repeats"]];
+  ["location_locality", "Town or suburb"], ["price", "Price"], ["tickets_url", "Tickets (a link)"], ["recurrence", "Repeats"],
+  ["doors", "Doors open (19:00)"], ["last_entry", "Last entry (23:00)"], ["solo_meet", "Coming solo: where and when to meet"]];
 
 async function loadOrg() {
   const box = $("#org-body");
@@ -1569,11 +1607,13 @@ async function loadOrg() {
     <p class="lede">This key is the account. Save a copy in your password manager; anyone holding it acts as ${esc(o.name)}.</p>
     <div class="keyrow"><input id="org-key" type="password" readonly value="${esc(orgKey())}" aria-label="Your organiser key"><button type="button" class="quiet" data-copyfield2="${esc(orgKey())}">Copy</button>
       <button type="button" class="quiet" data-orgsignout="1">Sign out of the organiser account</button></div></div>
+    ${o.proven ? practiceCard(r) + placesCard(r) : ""}
     ${o.proven ? `<div class="card"><h2>Your listings</h2>${r.claims.length ? r.claims.map(orgClaimCard).join("") : `<p class="lede">Claim the listings you run, below.</p>`}</div>
     <div class="card"><h2>Claim a listing</h2><p class="lede">A listing that links to your page is yours straight away. Others go to a steward.</p>
       <label for="org-find">Find it</label><input id="org-find" type="search" placeholder="Name, place or date" autocomplete="off">
       <ul class="org-found" id="org-found"></ul></div>` : ""}`;
   ORG_CLAIMS = r.claims;
+  ORG_PLACES = r.places || [];
 }
 let ORG_CLAIMS = [], DOOR = null;
 function orgClaimCard(c) {
@@ -1582,12 +1622,16 @@ function orgClaimCard(c) {
   return `<div class="org-claim" data-lid="${c.id}"><b>${esc(c.name)}</b>, ${esc(fmtShort(c.date))}
     <div class="actions"><button type="button" class="primary" data-orgdoor="${c.id}">Open check-in</button>
       <button type="button" class="quiet" data-orgedit="1" aria-expanded="false">Update it</button>
+      ${(l.slots || state.events.find((e) => e.id === c.id)?.slots || []).length ? `<button type="button" class="quiet" data-orgwho="${c.id}" aria-expanded="false">Who's coming</button>` : ""}
       <button type="button" class="quiet" data-orgtixedit="1" aria-expanded="false">Monero tickets${c.tickets?.open ? `: ${c.tickets.sold} sold` : ""}</button></div>
+    <div class="org-who" hidden></div>
     ${orgTixForm(c)}
     <div class="org-edit" hidden>
       <label for="st-${c.id}">Status</label><select id="st-${c.id}" data-of="status">${["confirmed", "tentative", "postponed", "cancelled"].map((v) =>
         `<option value="${v}"${(l.status || "confirmed") === v ? " selected" : ""}>${v}</option>`).join("")}</select>
       <div class="fields">${ORG_EDIT.map(([k, label]) => `<div><label for="of-${c.id}-${k}">${label}</label><input id="of-${c.id}-${k}" data-of="${k}" value="${esc(l[k] ?? "")}"></div>`).join("")}</div>
+      ${careBoxes(l.care || [], `oc-${c.id}`)}
+      ${retreatEditor(l, `or-${c.id}`, !!l.retreat)}
       <label for="on-${c.id}">An update for everyone (moved, sold out, bring a plate…)</label><textarea id="on-${c.id}" data-of="note" rows="2" maxlength="280">${esc(l.org_note?.text || "")}</textarea>
       <button type="button" class="quiet" data-orgsave="${c.id}">Save the update</button><p class="status" role="status"></p></div></div>`;
 }
@@ -1668,6 +1712,8 @@ async function orgClaim(btn) {
 async function orgSave(btn) {
   const box = btn.closest(".org-edit"), out = $(".status", box), body = {};
   $$("[data-of]", box).forEach((el) => (body[el.dataset.of] = el.value));
+  body.care = $$("[data-care]", box).filter((c) => c.checked).map((c) => c.dataset.care);
+  body.retreat = readRetreat(box);
   try { const r = await orgApi(`/api/org/update/${btn.dataset.orgsave}`, body); out.textContent = r.changed.length ? "Saved. It shows on the listing now." : "Already up to date."; }
   catch (e) { out.textContent = e.message; }
 }
@@ -2005,5 +2051,518 @@ document.addEventListener("click", (e) => {
 });
 document.addEventListener("keydown", (e) => {  // Enter in the ticket box checks it: one hand at the door
   if (e.key === "Enter" && e.target.closest?.(".door-tix")) { e.preventDefault(); $("[data-doortix]", e.target.closest(".door-tix")).click(); }
+});
+
+/* ---------- each mode's own (his calls 2026-10-24: "I want each part to be unique"; round one) ----------
+   Night: doors and last entry, a starting-soon strip, care chips, a meeting point for people coming solo.
+   Recovery: retreat details, your needs matched on this device, the day after a Night.
+   Day: your skills matched on this device. What a member keeps here stays in this browser: ZKP first, his ruling. */
+const CARE = { quiet: "Quiet room", water: "Free water", sober: "Sober-friendly", checking: "Drug checking on site", stepfree: "Step-free",
+  toilets: "Accessible toilets", lowsensory: "Low-sensory", trauma: "Trauma-aware", women: "Women only" };
+const NIGHT_CARE = ["quiet", "water", "sober", "checking", "stepfree", "toilets"];
+const NEEDS = ["sober", "stepfree", "lowsensory", "trauma", "women"];
+const RETREAT_ASKS = { silence: "Silence", fasting: "Fasting", substancefree: "Substance-free", phonesaway: "Phones away" };
+const MINE_KEY = { skills: "wheel.skills", needs: "wheel.needs" };
+function mine(k) { try { return JSON.parse(localStorage.getItem(MINE_KEY[k]) || "[]"); } catch { return []; } }
+function keepMine(k, v) { try { localStorage.setItem(MINE_KEY[k], JSON.stringify(v)); } catch {} }
+
+function careBoxes(have, prefix) {
+  return `<fieldset class="care-pick"><legend>What it offers</legend>${Object.entries(CARE).map(([k, label]) =>
+    `<label><input type="checkbox" data-care="${k}" id="${prefix}-${k}"${have.includes(k) ? " checked" : ""}> ${label}</label>`).join("")}</fieldset>`;
+}
+
+function modeExtrasEditor(ev, prefix) {
+  const modes = ev.modes || [];
+  return `<details class="night-extra"${ev.doors || ev.last_entry || ev.solo_meet || (ev.care || []).length ? " open" : ""}><summary>Doors, care and coming solo</summary>
+      <div class="fields">
+        <div><label for="${prefix}-doors">Doors open (19:00)</label><input id="${prefix}-doors" data-k="doors" value="${esc(ev.doors || "")}"></div>
+        <div><label for="${prefix}-last">Last entry (23:00)</label><input id="${prefix}-last" data-k="last_entry" value="${esc(ev.last_entry || "")}"></div>
+        <div class="wide"><label for="${prefix}-solo">Coming solo: where and when to meet</label><input id="${prefix}-solo" data-k="solo_meet" value="${esc(ev.solo_meet || "")}" placeholder="By the front bar at 20:30, look for the yellow flag"></div>
+      </div>
+      ${careBoxes(ev.care || [], `${prefix}-care`)}
+    </details>
+    ${retreatEditor(ev, prefix, ev.retreat || modes.includes("recovery"))}`;
+}
+
+function retreatEditor(ev, prefix, open) {
+  const r = ev.retreat || {};
+  return `<details class="retreat-extra"${open ? " open" : ""}><summary>Retreat details</summary>
+      <fieldset class="care-pick"><legend>What it asks of you</legend>${Object.entries(RETREAT_ASKS).map(([k, label]) =>
+        `<label><input type="checkbox" data-rask="${k}" id="${prefix}-ra-${k}"${(r.asks || []).includes(k) ? " checked" : ""}> ${label}</label>`).join("")}</fieldset>
+      <div class="fields">
+        <div><label for="${prefix}-sleep">Where you sleep</label><input id="${prefix}-sleep" data-r="sleep" value="${esc(r.sleep || "")}" placeholder="Shared cabins, bring a sleeping bag"></div>
+        <div><label for="${prefix}-food">Food</label><input id="${prefix}-food" data-r="food" value="${esc(r.food || "")}" placeholder="Vegetarian, all meals included"></div>
+        <div><label for="${prefix}-rbring">What to bring</label><input id="${prefix}-rbring" data-r="bring" value="${esc(r.bring || "")}" placeholder="Warm layers, a journal"></div>
+        <div><label for="${prefix}-intake">Intake form (a link)</label><input id="${prefix}-intake" data-r="intake" value="${esc(r.intake || "")}"></div>
+      </div>
+    </details>`;
+}
+
+function readRetreat(card) {
+  const val = (k) => ($(`[data-r="${k}"]`, card)?.value || "").trim();
+  const out = { asks: $$("[data-rask]", card).filter((c) => c.checked).map((c) => c.dataset.rask), sleep: val("sleep"), food: val("food"), bring: val("bring"), intake: val("intake") };
+  return out.asks.length || out.sleep || out.food || out.bring || out.intake ? out : null;
+}
+
+function nightLines(ev) {
+  if (!(state.mode === "night" || allModes()) || ev.past) return "";
+  const times = [ev.doors && `Doors ${ev.doors}`, ev.last_entry && `Last entry ${ev.last_entry}`].filter(Boolean);
+  return `${times.length ? `<div class="night-times">${times.map((t) => `<span>${esc(t)}</span>`).join("")}</div>` : ""}
+    ${ev.solo_meet ? `<div class="solo-line"><b>Coming solo?</b> ${esc(ev.solo_meet)}</div>` : ""}`;
+}
+// in the opened card: the night's care in words (Simple view hides chips), and the way to Recovery the day after
+function nightMore(ev) {
+  if (!(state.mode === "night" || allModes()) || ev.past) return "";
+  const care = (ev.care || []).filter((c) => NIGHT_CARE.includes(c)).map((c) => CARE[c]);
+  return `${care.length ? `<div><b>On the night:</b> ${esc(care.join(", "))}</div>` : ""}
+    <div class="dayafter-link"><button type="button" class="linklike" data-dayafter="${ev.id}">Rest the day after: Recovery on ${esc(fmtShort(addDays(onEnd(ev), 1)))}</button></div>`;
+}
+
+function retreatDetails(ev) {
+  const r = ev.retreat;
+  if (!r || !(state.mode === "recovery" || allModes())) return "";
+  const rows = [];
+  if ((r.asks || []).length) rows.push(`<div><b>Asks of you:</b> ${r.asks.map((a) => esc(RETREAT_ASKS[a] || a)).join(", ")}</div>`);
+  [["sleep", "Where you sleep"], ["food", "Food"], ["bring", "What to bring"]].forEach(([k, label]) => { if (r[k]) rows.push(`<div><b>${label}:</b> ${esc(r[k])}</div>`); });
+  if (r.intake) rows.push(`<div><a href="${esc(r.intake)}" target="_blank" rel="noopener">The intake form</a></div>`);
+  return rows.length ? `<div class="retreat-details">${rows.join("")}</div>` : "";
+}
+
+// Night: what starts in the next two hours, at the top of the list
+function startingSoon(list) {
+  const now = new Date(), today = state.today, nowM = now.getHours() * 60 + now.getMinutes();
+  const soon = list.filter((e) => on(e) === today && e.start_time).map((e) => ({ e, m: mins(e.doors || e.start_time) }))
+    .filter(({ m }) => m >= nowM - 15 && m <= nowM + 120).sort((a, b) => a.m - b.m);
+  if (!soon.length) return "";
+  return `<div class="soon"><b>Starting soon</b>${soon.map(({ e }) => `<a href="#l/${e.id}">${esc(e.doors ? `Doors ${e.doors}` : e.start_time)}: ${esc(e.name)}</a>`).join("")}</div>`;
+}
+
+// Day: a shift fits when what it asks for meets a skill kept on this device
+function fitsSkills(ev) {
+  const skills = mine("skills").map((x) => x.toLowerCase());
+  const asks = helpWith(ev);
+  return skills.length > 0 && asks.some((a) => skills.some((k) => a.includes(k) || k.includes(a)));
+}
+// Recovery: a listing fits when it offers every need kept on this device (substance-free retreats count as sober)
+function fitsNeeds(ev) {
+  const needs = mine("needs");
+  const have = new Set(ev.care || []);
+  if ((ev.retreat?.asks || []).includes("substancefree")) have.add("sober");
+  return needs.length > 0 && needs.every((n) => have.has(n));
+}
+
+function renderMine() {
+  const row = $("#mine-row");
+  if (!row) return;
+  if (state.mode === "day") {
+    const sk = mine("skills");
+    row.innerHTML = `<span class="rowlabel">Your skills</span>
+      ${sk.map((k) => `<button type="button" class="tag on" data-dropskill="${esc(k)}" aria-label="Remove ${esc(k)}">${esc(k)} ✕</button>`).join("")}
+      <span class="skill-add"><label for="skill-in" class="sr-only">Add a skill</label><input id="skill-in" type="text" placeholder="First aid, cooking, a driver's licence" autocomplete="off"><button type="button" class="quiet" data-addskill="1">Add</button></span>
+      ${sk.length ? `<button type="button" class="tag${state.fitsOnly ? " on" : ""}" data-fitsonly="1" aria-pressed="${!!state.fitsOnly}">✓ Only shifts that fit me</button>` : ""}
+      <span class="mine-hint">Kept on this device only, and matched here.</span>`;
+  } else if (state.mode === "recovery") {
+    const nd = mine("needs");
+    row.innerHTML = `<span class="rowlabel">Your needs</span>
+      ${NEEDS.map((k) => `<button type="button" class="tag${nd.includes(k) ? " on" : ""}" data-need="${k}" aria-pressed="${nd.includes(k)}">${esc(CARE[k])}</button>`).join("")}
+      ${nd.length ? `<button type="button" class="tag${state.fitsOnly ? " on" : ""}" data-fitsonly="1" aria-pressed="${!!state.fitsOnly}">✓ Only what fits</button>` : ""}
+      <span class="mine-hint">Kept on this device only, and matched here.</span>`;
+  } else row.innerHTML = "";
+}
+
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("button, a");
+  if (!t) return;
+  if (t.dataset.addskill) {
+    const v = $("#skill-in").value.trim().toLowerCase().slice(0, 40);
+    if (v) { keepMine("skills", [...new Set([...mine("skills"), v])].slice(0, 30)); renderMode(); $("#skill-in")?.focus(); }
+  }
+  if (t.dataset.dropskill) { keepMine("skills", mine("skills").filter((k) => k !== t.dataset.dropskill)); renderMode(); }
+  if (t.dataset.need) { const n = mine("needs"), k = t.dataset.need; keepMine("needs", n.includes(k) ? n.filter((x) => x !== k) : [...n, k]); renderMode(); }
+  if (t.dataset.fitsonly) { state.fitsOnly = !state.fitsOnly; renderMode(); }
+  if (t.dataset.dayafter) {
+    const ev = state.events.find((x) => x.id === t.dataset.dayafter);
+    if (ev) { state.dayAfter = { date: addDays(onEnd(ev), 1), name: ev.name }; state.range = "all"; location.hash = "#recovery"; }
+  }
+  if (t.dataset.cleardayafter) { state.dayAfter = null; renderMode(); }
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.id === "skill-in") { e.preventDefault(); $("[data-addskill]")?.click(); } });
+
+/* ---------- Recovery's own, round two (his calls 2026-10-24): places that stay, practitioners you can contact ----------
+   Places come in from members and are checked like listings; an organiser can claim one. A practitioner is an organiser
+   account with a practice, every field with its own audience. Vouches are member proofs: one per member per
+   practitioner, and who vouched stays with them. */
+const DAYKEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+const DAYNAMES = { mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday", sun: "Sunday" };
+const PLACE_KINDS = { sauna: "Sauna", hotpools: "Hot pools", float: "Float tank", coldplunge: "Cold plunge", bathhouse: "Bathhouse", other: "Another kind of place" };
+const PR_AUD = [["all", "Everyone"], ["mem", "Members"], ["off", "Held back"]];
+const PRACTICE = [["modalities", "What you offer, separated by commas", "Massage, breathwork, reiki"], ["area", "Where you work", "Matakana and online"],
+  ["price", "Price", "$90 an hour, koha for sliding scale"], ["registration", "Registration, in your words", "Member of Massage New Zealand"],
+  ["page", "Your page (a link)", "https://"], ["booking", "Booking link", "https://"],
+  ["signal", "Signal username or signal.me link", "quietwater.01"], ["email", "Email", ""], ["phone", "Phone", ""]];
+let ORG_PLACES = [];
+
+// Day and Recovery each carry their own kinds of thing beside the list (his "I want each part to be unique")
+const SEGS = { day: [["listings", "Shifts and events"], ["asks", "Asks"], ["swap", "Skillshare"]],
+  recovery: [["listings", "Events and retreats"], ["places", "Places"], ["practitioners", "Practitioners"]] };
+function segOf() { state.seg = state.seg || {}; return state.seg[state.mode] || "listings"; }
+function recSegOn() { return !!SEGS[state.mode] && !allModes() && segOf() !== "listings"; }
+function renderSegRow() {
+  const row = $("#rec-seg"), has = !!SEGS[state.mode] && !allModes();
+  row.hidden = !has;
+  $("#view-mode").classList.toggle("seg-other", recSegOn());
+  if (!has) return;
+  row.innerHTML = SEGS[state.mode].map(([k, label]) =>
+    `<button type="button" data-recseg="${k}" class="${segOf() === k ? "on" : ""}" aria-pressed="${segOf() === k}">${label}</button>`).join("");
+}
+
+async function renderRecSeg() {
+  const box = $("#list");
+  box.innerHTML = `<p class="status">Loading…</p>`;
+  try {
+    if (segOf() === "asks") { box.innerHTML = await asksView(); return; }
+    if (segOf() === "swap") { box.innerHTML = await swapView(); return; }
+    if (segOf() === "places") {
+      state.places = state.places || (await api("/api/places")).places;
+      box.innerHTML = placesView();
+    } else {
+      const r = await api("/api/practitioners");
+      state.practitioners = r.practitioners;
+      box.innerHTML = practitionersView(r);
+    }
+  } catch (e) { box.innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
+}
+
+// open now, from the place's own hours, in the viewer's own clock (The Wheel's places are all in Aotearoa)
+function openState(pl) {
+  const now = new Date(), key = DAYKEYS[now.getDay()], m = now.getHours() * 60 + now.getMinutes();
+  const ranges = (h) => (h || "").split(",").map((r) => r.trim()).filter(Boolean).map((r) => r.split("-").map(mins));
+  for (const [a, b] of ranges(pl.hours?.[key])) {
+    if (m >= a && (b > a ? m < b : true)) return { open: true, text: `Open now, until ${String(Math.floor(b / 60)).padStart(2, "0")}:${String(b % 60).padStart(2, "0")}` };
+  }
+  for (let i = 0; i < 7; i++) {
+    const k = DAYKEYS[(now.getDay() + i) % 7];
+    const next = ranges(pl.hours?.[k]).map(([a]) => a).filter((a) => i > 0 || a > m).sort((x, y) => x - y)[0];
+    if (next != null) return { open: false, text: `Closed. Opens ${i === 0 ? "today" : i === 1 ? "tomorrow" : DAYNAMES[k]} at ${String(Math.floor(next / 60)).padStart(2, "0")}:${String(next % 60).padStart(2, "0")}` };
+  }
+  return { open: false, text: Object.keys(pl.hours || {}).length ? "Closed this week" : "Hours: check their page" };
+}
+
+function placesView() {
+  const all = state.places || [];
+  const kinds = [...new Set(all.map((p) => p.kind))];
+  let list = all.filter((p) => !state.placeKind || p.kind === state.placeKind);
+  if (state.openOnly) list = list.filter((p) => openState(p).open);
+  list = list.slice().sort((a, b) => openState(b).open - openState(a).open || a.name.localeCompare(b.name));
+  const chips = `<div class="tagrow place-chips"><button type="button" class="tag${state.openOnly ? " on" : ""}" data-openonly="1" aria-pressed="${!!state.openOnly}">● Open now</button>
+    ${kinds.map((k) => `<button type="button" class="tag${state.placeKind === k ? " on" : ""}" data-placekind="${k}">${esc(PLACE_KINDS[k] || k)}</button>`).join("")}</div>`;
+  const rows = list.map(placeCard).join("") || `<p class="empty">${all.length ? "Every place is closed right now. Clear Open now to see them all." : "The first saunas and hot pools come in from members. Add one below; it shows once members have checked it."}</p>`;
+  return `${chips}${rows}
+    <details class="card add-place"><summary><b>Add a place</b></summary>
+      <p class="hint">A sauna, hot pools, a float tank: somewhere that stays open week to week. It shows once members have checked it, and whoever runs it can claim it with an organiser account.</p>
+      <div id="place-new">${placeForm("pn", {})}</div>
+      <button type="button" class="primary" data-placeadd="1">Send for review</button><p class="status" role="status"></p></details>`;
+}
+
+function placeCard(pl) {
+  const st = openState(pl);
+  const hours = DAYKEYS.slice(1).concat("sun").map((k) => `<tr><th scope="row">${DAYNAMES[k]}</th><td>${esc(pl.hours?.[k] || "Closed")}</td></tr>`).join("");
+  return `<article class="place" id="pl-${pl.id}">
+    <div class="place-head"><h3>${esc(pl.name)}</h3><span class="chip">${esc(PLACE_KINDS[pl.kind] || "")}</span></div>
+    <p class="open-state ${st.open ? "is-open" : ""}">${st.open ? "●" : "○"} ${esc(st.text)}</p>
+    <div class="meta"><span>${esc(pl.locality)}</span>${pl.price ? `<span>${esc(pl.price)}</span>` : ""}${pl.temp ? `<span>${esc(pl.temp)}</span>` : ""}</div>
+    ${(pl.sessions || []).length ? `<ul class="sessions">${pl.sessions.map((x) => `<li><b>${esc(x.what)}</b>${x.when ? `: ${esc(x.when)}` : ""}</li>`).join("")}</ul>` : ""}
+    ${(pl.care || []).length ? `<div class="chips">${pl.care.map((c) => `<span class="chip care">${esc(CARE[c] || c)}</span>`).join("")}</div>` : ""}
+    <details><summary>Hours${pl.about ? ", about" : ""} and where</summary>
+      ${pl.about ? `<p>${esc(pl.about)}</p>` : ""}
+      <table class="hours">${hours}</table>
+      ${pl.address ? `<p>${esc(pl.address)}</p>` : ""}
+      ${pl.claimed_by ? `<p class="hint">Looked after by <a href="#o/${esc(pl.claimed_by.id)}">${esc(pl.claimed_by.name)}</a>.</p>` : ""}
+    </details>
+    <div class="actions">${pl.booking ? `<a class="ticket-badge" href="${esc(pl.booking)}" target="_blank" rel="noopener">Book</a>` : ""}${pl.link ? `<a class="quiet" href="${esc(pl.link)}" target="_blank" rel="noopener">Their page</a>` : ""}</div>
+  </article>`;
+}
+
+function placeForm(prefix, pl) {
+  const h = pl.hours || {};
+  return `<div class="fields">
+      <div class="wide"><label for="${prefix}-name">Name</label><input id="${prefix}-name" data-pf="name" value="${esc(pl.name || "")}"></div>
+      <div><label for="${prefix}-kind">Kind</label><select id="${prefix}-kind" data-pf="kind">${Object.entries(PLACE_KINDS).map(([k, l]) => `<option value="${k}"${pl.kind === k ? " selected" : ""}>${l}</option>`).join("")}</select></div>
+      <div><label for="${prefix}-loc">Town or suburb</label><input id="${prefix}-loc" data-pf="locality" value="${esc(pl.locality || "")}"></div>
+      <div class="wide"><label for="${prefix}-addr">Address</label><input id="${prefix}-addr" data-pf="address" value="${esc(pl.address || "")}"></div>
+      <div><label for="${prefix}-link">Their page (a link)</label><input id="${prefix}-link" data-pf="link" value="${esc(pl.link || "")}"></div>
+      <div><label for="${prefix}-book">Booking (a link)</label><input id="${prefix}-book" data-pf="booking" value="${esc(pl.booking || "")}"></div>
+      <div><label for="${prefix}-price">Price</label><input id="${prefix}-price" data-pf="price" value="${esc(pl.price || "")}" placeholder="$25 for two hours"></div>
+      <div><label for="${prefix}-temp">Water or heat</label><input id="${prefix}-temp" data-pf="temp" value="${esc(pl.temp || "")}" placeholder="Pools 36–40°C, sauna 85°C"></div>
+    </div>
+    <fieldset class="hours-pick"><legend>Opening hours, like 07:00-21:00 (empty is closed)</legend>
+      ${["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((k) => `<label for="${prefix}-h-${k}">${DAYNAMES[k].slice(0, 3)}</label><input id="${prefix}-h-${k}" data-ph="${k}" value="${esc(h[k] || "")}">`).join("")}
+    </fieldset>
+    <label for="${prefix}-sess">Sessions, one per line: what | when</label>
+    <textarea id="${prefix}-sess" data-pf="sessions" rows="3" placeholder="Women's session | Tue 18:00-20:00&#10;Quiet hours | Sun mornings">${esc((pl.sessions || []).map((x) => `${x.what} | ${x.when}`).join("\n"))}</textarea>
+    ${careBoxes(pl.care || [], `${prefix}-care`)}
+    <label for="${prefix}-about">About</label><textarea id="${prefix}-about" data-pf="about" rows="3">${esc(pl.about || "")}</textarea>`;
+}
+
+function readPlaceForm(box) {
+  const out = {};
+  $$("[data-pf]", box).forEach((el) => (out[el.dataset.pf] = el.value.trim()));
+  out.sessions = (out.sessions || "").split("\n").map((l) => l.split("|").map((x) => x.trim())).filter(([what]) => what).map(([what, when]) => ({ what, when: when || "" }));
+  out.hours = Object.fromEntries($$("[data-ph]", box).map((el) => [el.dataset.ph, el.value.trim()]));
+  out.care = $$("[data-care]", box).filter((c) => c.checked).map((c) => c.dataset.care);
+  return out;
+}
+
+function practitionersView(r) {
+  const vouched = new Set(W?.vouched ? W.vouched() : []);
+  const rows = r.practitioners.map((x) => {
+    const contact = [];
+    if (x.signal) contact.push(/^https:\/\/signal\.me\//.test(x.signal) ? `<a href="${esc(x.signal)}" target="_blank" rel="noopener">Signal</a>` : `<span>Signal: <b class="sel">${esc(x.signal)}</b></span>`);
+    if (x.email) contact.push(`<span>Email: <b class="sel">${esc(x.email)}</b></span>`);
+    if (x.phone) contact.push(`<span>Phone: <b class="sel">${esc(x.phone)}</b></span>`);
+    return `<article class="practitioner" id="pr-${x.id}">
+      <div class="place-head"><h3>${esc(x.name)}</h3>${x.vouches ? `<span class="chip strong">✓ ${x.vouches} ${x.vouches === 1 ? "member vouches" : "members vouch"}</span>` : ""}</div>
+      ${(x.modalities || []).length ? `<div class="chips">${x.modalities.map((m) => `<span class="chip">${esc(m)}</span>`).join("")}</div>` : ""}
+      <div class="meta">${x.area ? `<span>${esc(x.area)}</span>` : ""}${x.price ? `<span>${esc(x.price)}</span>` : ""}</div>
+      ${x.registration ? `<p class="hint">${esc(x.registration)} (their own statement)</p>` : ""}
+      ${x.about ? `<p>${esc(x.about)}</p>` : ""}
+      ${contact.length ? `<div class="contact">${contact.join("")}</div>` : ""}
+      <div class="actions">${x.booking ? `<a class="ticket-badge" href="${esc(x.booking)}" target="_blank" rel="noopener">Book</a>` : ""}${x.page ? `<a class="quiet" href="${esc(x.page)}" target="_blank" rel="noopener">Their page</a>` : ""}
+        ${vouched.has(x.id) ? `<span class="hint">✓ You vouched</span>` : `<button type="button" class="quiet" data-vouch="${x.id}">I've seen them: vouch</button>`}</div>
+      <p class="status" role="status"></p></article>`;
+  }).join("");
+  return `${r.member ? "" : `<p class="hint">Members see the contact details a practitioner keeps for members. <a href="#me">Join or sign in on Me</a>.</p>`}
+    ${rows || `<p class="empty">Practitioners list themselves from an organiser account. <a href="#org">For organisers and practitioners</a>.</p>`}
+    <p class="hint">A vouch is a member's proof, one per member for each practitioner. The count shows; who vouched stays with them.</p>`;
+}
+
+async function vouchFor(btn) {
+  const out = $(".status", btn.closest(".practitioner"));
+  if (!W) { out.textContent = "The member tools failed to load. Reload the page."; return; }
+  btn.disabled = true; out.textContent = "Making your proof on this device…";
+  try {
+    const r = await W.vouch(btn.dataset.vouch);
+    if (r.ok) { toast("Vouched"); renderRecSeg(); return; }
+    out.textContent = r.why === "again" ? "You've vouched for them already." : r.why === "notmember" || r.why === "nokey" ? "Vouching takes a member's key. Join on Me first." : "The vouch failed. Try again in a minute.";
+  } catch (e) { out.textContent = e.message; }
+  btn.disabled = false;
+}
+
+async function placeAdd(btn) {
+  const out = $(".status", btn.closest(".add-place"));
+  try { await api("/api/places", readPlaceForm($("#place-new"))); out.textContent = "Sent. It shows here once members have checked it."; toast("Sent for review"); }
+  catch (e) { out.textContent = e.message; }
+}
+
+async function loadPlacesWaiting() {
+  const box = $("#rv-places");
+  const { pending } = await api("/api/places?pending=1");
+  const open = pending.filter((c) => !c.mine);
+  box.innerHTML = open.length ? `<details class="card dupes"><summary><b>Places waiting (${open.length})</b></summary>
+    <p class="hint">Saunas, hot pools and the like. Check the name, hours and place against their page.</p>
+    ${open.map((c) => `<div class="dup-pair" data-plid="${c.id}"><b>${esc(c.name)}</b> <span class="hint">${esc(PLACE_KINDS[c.kind] || "")}, ${esc(c.locality)}</span>
+      <div class="hint">${esc(Object.entries(c.hours || {}).map(([k, v]) => `${DAYNAMES[k].slice(0, 3)} ${v}`).join(" · ") || "No hours given")}</div>
+      ${c.link ? `<a href="${esc(c.link)}" target="_blank" rel="noopener">Their page</a>` : ""}
+      ${reviewMe ? `<div class="actions"><button type="button" class="primary" data-placeact="approve">It's right</button><button type="button" class="danger" data-placeact="reject">It's wrong</button>${c.my_verdict ? `<span class="hint">You said: ${c.my_verdict === "approve" ? "right" : "wrong"}.</span>` : ""}</div>` : `<p class="hint"><a href="#me">Sign in</a> to check it.</p>`}</div>`).join("")}</details>` : "";
+}
+
+function practiceCard(r) {
+  const pr = r.practice || {};
+  const field = ([k, label, ph]) => {
+    const f = pr[k] || {}, v = k === "modalities" ? (f.v || []).join(", ") : k === "page" && !f.v ? r.organiser.page : f.v || "";
+    const a = f.a || (["signal", "email", "phone"].includes(k) ? "mem" : "all");
+    return `<div class="prac-field"><label for="pr-${k}">${label}</label><input id="pr-${k}" data-pr="${k}" value="${esc(v)}" placeholder="${esc(ph)}">
+      <select data-pra="${k}" aria-label="Who sees: ${esc(label)}">${PR_AUD.map(([x, l]) => `<option value="${x}"${a === x ? " selected" : ""}>${l}</option>`).join("")}</select></div>`;
+  };
+  return `<details class="card practice"${pr.listed ? "" : ""}><summary><h2>As a practitioner</h2></summary>
+    <p class="lede">Healers, bodyworkers, counsellors: list your practice in Recovery. Each line has its own setting: everyone, members only, or held back.</p>
+    <div class="warn"><p><b>Before you describe your work:</b> health claims in Aotearoa follow the <a href="${esc(r.asa_code)}" target="_blank" rel="noopener">Therapeutic and Health Advertising Code</a>. It covers massage, counselling and natural health as well as medicine.</p></div>
+    <p class="hint">For contact, a private messenger like Signal keeps your number to yourself: share a Signal username in place of a phone number.</p>
+    ${PRACTICE.map(field).join("")}
+    <div class="prac-field"><label for="pr-about">About your practice</label><textarea id="pr-about" data-pr="about" rows="4">${esc(pr.about?.v || "")}</textarea>
+      <select data-pra="about" aria-label="Who sees: about">${PR_AUD.map(([x, l]) => `<option value="${x}"${(pr.about?.a || "all") === x ? " selected" : ""}>${l}</option>`).join("")}</select></div>
+    <label class="tick"><input type="checkbox" id="pr-listed"${pr.listed ? " checked" : ""}> List my practice in Recovery</label>
+    <button type="button" class="primary" data-prsave="1">Save</button><p class="status" role="status"></p></details>`;
+}
+
+async function practiceSave(btn) {
+  const box = btn.closest(".practice"), out = $(":scope > .status", box), body = { listed: $("#pr-listed").checked };
+  $$("[data-pr]", box).forEach((el) => { body[el.dataset.pr] = { v: el.value.trim(), a: $(`[data-pra="${el.dataset.pr}"]`, box).value }; });
+  try { await orgApi("/api/org/practice", body); out.textContent = body.listed ? "Saved. Your practice shows in Recovery, under Practitioners." : "Saved, and kept off the list."; }
+  catch (e) { out.textContent = e.message; }
+}
+
+function placesCard(r) {
+  const mine = r.places || [];
+  return `<details class="card org-places"${mine.length ? " open" : ""}><summary><h2>Places you look after</h2></summary>
+    ${mine.map((pl) => pl.claim !== "claimed" ? `<div class="org-claim"><b>${esc(pl.name)}</b>: <span class="hint">waiting for a steward</span></div>`
+      : `<div class="org-claim" data-plid="${pl.id}"><b>${esc(pl.name)}</b>
+        <div class="actions"><button type="button" class="quiet" data-placeedit="1" aria-expanded="false">Update it</button></div>
+        <div class="place-edit" hidden>${placeForm(`pe-${pl.id}`, pl)}<button type="button" class="quiet" data-placesave="${pl.id}">Save</button><p class="status" role="status"></p></div></div>`).join("")}
+    <p class="lede">Run a sauna, hot pools or a float centre? Find it and claim it. A place that links to your page is yours straight away; others go to a steward.</p>
+    <label for="place-find">Find it</label><input id="place-find" type="search" placeholder="Name or town" autocomplete="off">
+    <ul class="org-found" id="place-found"></ul></details>`;
+}
+
+async function placeFind() {
+  const q = ($("#place-find")?.value || "").trim().toLowerCase(), out = $("#place-found");
+  if (!out) return;
+  if (q.length < 2) { out.innerHTML = ""; return; }
+  try { state.places = state.places || (await api("/api/places")).places; } catch { return; }
+  const held = new Set(ORG_PLACES.map((p) => p.id));
+  const hits = state.places.filter((p) => !held.has(p.id) && !p.claimed_by && `${p.name} ${p.locality}`.toLowerCase().includes(q)).slice(0, 8);
+  out.innerHTML = hits.map((p) => `<li><span><b>${esc(p.name)}</b>, ${esc(p.locality)}</span> <button type="button" class="quiet" data-placeclaim="${p.id}">Claim</button></li>`).join("")
+    || `<li class="hint">Add it first under Recovery, Places, then claim it here once members have checked it.</li>`;
+}
+
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("button, a");
+  if (!t) return;
+  if (t.dataset.recseg) { segOf(); state.seg[state.mode] = t.dataset.recseg; renderMode(); }
+  if (t.dataset.openonly) { state.openOnly = !state.openOnly; $("#list").innerHTML = placesView(); }
+  if (t.dataset.placekind) { state.placeKind = state.placeKind === t.dataset.placekind ? null : t.dataset.placekind; $("#list").innerHTML = placesView(); }
+  if (t.dataset.placeadd) placeAdd(t);
+  if (t.dataset.vouch) vouchFor(t);
+  if (t.dataset.placeact) api(`/api/places/${t.closest("[data-plid]").dataset.plid}`, { action: t.dataset.placeact })
+    .then((r) => { toast(r.state === "approved" ? "Checked: it's in Recovery" : r.state === "rejected" ? "Turned down" : "Thanks: it waits for more reviews"); loadPlacesWaiting(); state.places = null; })
+    .catch((err) => toast(err.message));
+  if (t.dataset.prsave) practiceSave(t);
+  if (t.dataset.placeedit) { const ed = $(".place-edit", t.closest(".org-claim")); ed.hidden = !ed.hidden; t.setAttribute("aria-expanded", String(!ed.hidden)); }
+  if (t.dataset.placesave) {
+    const box = t.closest(".place-edit"), out = $(":scope > .status", box);
+    orgApi(`/api/org/place/${t.dataset.placesave}`, readPlaceForm(box)).then(() => { out.textContent = "Saved. It shows in Recovery now."; state.places = null; }).catch((err) => (out.textContent = err.message));
+  }
+  if (t.dataset.placeclaim) orgApi(`/api/org/place/${t.dataset.placeclaim}`, { action: "claim" })
+    .then((r) => { toast(r.state === "claimed" ? "Claimed" : "Sent to a steward"); state.places = null; loadOrg(); }).catch((err) => toast(err.message));
+});
+document.addEventListener("input", (e) => { if (e.target.id === "place-find") placeFind(); });
+
+/* ---------- Day's own, round three (his calls 2026-10-24): shifts, crews, thanks, asks, the skillshare swap ----------
+   Counts are public; the organiser holding a listing sees the pen names on its slots and on its crew; an ask's thread is
+   seen by its two sides only. */
+const ASK_KINDS = { lift: "A lift", hands: "Hands", borrow: "Something to borrow", other: "Something else" };
+const member = () => !!(window.createWheel && W?.session());
+
+function crewLine(ev) {
+  if (state.mode !== "day" || !ev.claimed_by || ev.listing_kind !== "volunteer") return "";
+  const on = (state.dayMe?.crews || []).includes(ev.claimed_by.id);
+  return `<div class="crew-line">${on ? `✓ On ${esc(ev.claimed_by.name)}’s crew: their next calls show here first. <button type="button" class="linklike" data-crew="leave" data-oid="${esc(ev.claimed_by.id)}">Leave the crew</button>`
+    : `<button type="button" class="quiet" data-crew="join" data-oid="${esc(ev.claimed_by.id)}">Ask me again: join ${esc(ev.claimed_by.name)}’s crew</button>`}</div>`;
+}
+
+async function shiftAct(btn) {
+  if (!member()) { toast("Taking a shift needs a member's key. Join on Me first."); return; }
+  btn.disabled = true;
+  try {
+    const r = await api(`/api/shifts/${btn.dataset.lid}`, { slot: btn.dataset.slot, action: btn.dataset.shift });
+    state.dayMe = { slots: r.slots, crews: r.crews, swap: r.swap };
+    const ev = state.events.find((e) => e.id === btn.dataset.lid);
+    if (ev) ev.slot_fill = r.slot_fill;
+    toast(btn.dataset.shift === "take" ? "You're on it. The organiser sees your pen name." : "You've left that shift");
+    renderList();
+  } catch (e) { toast(e.message); btn.disabled = false; }
+}
+
+async function crewAct(btn) {
+  if (!member()) { toast("A crew needs a member's key. Join on Me first."); return; }
+  try { state.dayMe = await api(`/api/crews/${btn.dataset.oid}`, { action: btn.dataset.crew }); toast(btn.dataset.crew === "join" ? "On the crew" : "Left the crew"); renderList(); }
+  catch (e) { toast(e.message); }
+}
+
+async function orgWho(btn) {
+  const box = $(".org-who", btn.closest(".org-claim"));
+  box.hidden = !box.hidden; btn.setAttribute("aria-expanded", String(!box.hidden));
+  if (box.hidden) return;
+  box.innerHTML = `<p class="status">Loading…</p>`;
+  try { const r = await orgApi(`/api/org/shifts/${btn.dataset.orgwho}`); box.innerHTML = whoHtml(btn.dataset.orgwho, r.slots, r.today); }
+  catch (e) { box.innerHTML = `<p class="status err">${esc(e.message)}</p>`; }
+}
+function whoHtml(lid, slots, today) {
+  return slots.map((s) => `<div class="who-slot"><b>${esc(fmtShort(s.date))}, ${esc(s.start || "")}${s.end ? "–" + esc(s.end) : ""}</b> ${esc(s.task || "")}: ${s.people.length}${s.needed ? ` of ${s.needed}` : ""}
+    <ul>${s.people.map((x) => `<li><a href="#p/${esc(x.pen)}">${esc(x.pen)}</a> ${x.thanked ? `<span class="hint">✓ Thanked</span>` : s.date <= today
+      ? `<button type="button" class="linklike" data-thank="${esc(x.pen)}" data-lid="${lid}" data-slot="${s.key}">Thank them</button>` : ""}</li>`).join("") || `<li class="hint">Still open.</li>`}</ul></div>`).join("")
+    + `<p class="hint">Pen names only. Thanks open once the shift has happened, and each thanks adds to that member's rep.</p>`;
+}
+async function thankAct(btn) {
+  try { const r = await orgApi(`/api/org/thanks/${btn.dataset.lid}`, { slot: btn.dataset.slot, pen: btn.dataset.thank }); btn.closest(".org-who").innerHTML = whoHtml(btn.dataset.lid, r.slots, state.today); toast("Thanked"); }
+  catch (e) { toast(e.message); }
+}
+
+async function asksView() {
+  const r = await api("/api/asks");
+  const soon = addDays(state.today || new Date().toISOString().slice(0, 10), 7);
+  const rows = r.asks.map((a) => `<article class="ask" data-aid="${a.id}">
+      <div class="place-head"><span class="chip strong">${esc(ASK_KINDS[a.kind] || "")}</span><span class="hint">by ${esc(fmtShort(a.by))}${a.area ? `, ${esc(a.area)}` : ""}</span></div>
+      <p>${esc(a.text)}</p>
+      <div class="actions">${a.mine ? `<button type="button" class="quiet" data-askthreads="${a.id}">Replies (${a.threads})</button><button type="button" class="linklike" data-askclose="${a.id}">Close it</button>`
+        : `<button type="button" class="quiet" data-askthreads="${a.id}">${a.answered ? "Your thread" : "Answer"}</button>`}</div>
+      <div class="ask-threads" hidden></div></article>`).join("");
+  return `<p class="hint">Short needs that are no event: a lift, two hands for an hour, something to borrow. Answers go through The Wheel between pen names, so each side shares a number only when they choose to.</p>
+    ${rows || `<p class="empty">The board is clear right now. Post the first ask below.</p>`}
+    <details class="card add-ask"><summary><b>Post an ask</b></summary>
+      <label for="ask-kind">What kind</label><select id="ask-kind">${Object.entries(ASK_KINDS).map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select>
+      <label for="ask-text">What you need, when and where</label><textarea id="ask-text" rows="3" maxlength="280" placeholder="A lift from Warkworth to the beach clean, Saturday 8:30"></textarea>
+      <div class="fields"><div><label for="ask-by">Needed by</label><input id="ask-by" type="date" min="${esc(state.today || "")}" value="${esc(soon)}"></div>
+        <div><label for="ask-area">Area</label><input id="ask-area" placeholder="Warkworth"></div></div>
+      <button type="button" class="primary" data-askpost="1">Post it</button><p class="status" role="status"></p></details>`;
+}
+
+async function askThreads(aid, box) {
+  box.hidden = false;
+  try {
+    const r = await api(`/api/asks/${aid}/threads`);
+    const thread = (t) => `<div class="thread"><p class="hint">${r.mine ? `With ${esc(t.with)}` : "You and whoever asked"}</p>
+      ${t.messages.map((m) => `<p class="msg ${m.from_asker === r.mine ? "me" : ""}">${esc(m.text)}</p>`).join("")}
+      <div class="keyrow"><label class="sr-only" for="msg-${aid}-${t.with}">Reply</label><input id="msg-${aid}-${t.with}" maxlength="600" placeholder="Reply"><button type="button" class="quiet" data-asksend="${aid}" data-to="${r.mine ? esc(t.with) : ""}">Send</button></div></div>`;
+    box.innerHTML = r.threads.map(thread).join("")
+      + (r.mine ? (r.threads.length ? "" : `<p class="hint">Replies show here.</p>`)
+        : r.threads.length ? "" : `<div class="keyrow"><label class="sr-only" for="msg-${aid}-new">Your answer</label><input id="msg-${aid}-new" maxlength="600" placeholder="I can help: when and how"><button type="button" class="quiet" data-asksend="${aid}" data-to="">Send</button></div>`);
+  } catch (e) { box.innerHTML = `<p class="status err">${esc(e.message)}</p>`; }
+}
+
+async function swapView() {
+  const r = await api("/api/swap");
+  const mineSet = new Set((state.dayMe?.swap || []).map((x) => `${x.side}:${x.topic}`));
+  const row = (x) => `<li class="swap-row${x.ready ? " ready" : ""}"><b>${esc(x.topic)}</b>
+      <span class="hint">${x.teach} can teach, ${x.learn} want to learn${x.ready ? ": enough for a workshop" : ""}</span>
+      ${x.ready && mineSet.has(`teach:${x.topic}`) ? `<a class="quiet" href="#add" data-draftws="${esc(x.topic)}">Draft the workshop</a>` : ""}
+      ${member() ? `<button type="button" class="linklike" data-swap="${mineSet.has(`learn:${x.topic}`) ? "unlearn" : "learn"}" data-topic="${esc(x.topic)}">${mineSet.has(`learn:${x.topic}`) ? "✓ Learning" : "I want to learn this"}</button>` : ""}</li>`;
+  return `<p class="hint">Say what you can teach and what you want to learn. When ${r.workshop_at} people want the same thing and someone can teach it, the teacher gets a draft workshop to post. The board shows counts only.</p>
+    ${r.topics.length ? `<ul class="swap">${r.topics.map(row).join("")}</ul>` : `<p class="empty">The board is empty so far. Add the first line below.</p>`}
+    ${member() ? `<div class="card swap-add"><h3>Your lines</h3>
+      <ul class="swap-mine">${(state.dayMe?.swap || []).map((x) => `<li>${x.side === "teach" ? "Can teach" : "Wants to learn"}: <b>${esc(x.topic)}</b> <button type="button" class="linklike" data-swapdrop="${esc(x.topic)}" data-side="${x.side}">Drop</button></li>`).join("") || `<li class="hint">None yet.</li>`}</ul>
+      <label for="swap-topic">A skill, in a word or two</label><input id="swap-topic" maxlength="40" placeholder="Sourdough, bike repair, te reo">
+      <div class="actions"><button type="button" class="quiet" data-swapadd="teach">I can teach it</button><button type="button" class="quiet" data-swapadd="learn">I want to learn it</button></div>
+      <p class="status" role="status"></p></div>` : `<p class="hint"><a href="#me">Join on Me</a> to add your own lines.</p>`}`;
+}
+
+async function swapAct(topic, side, on) {
+  try { const r = await api("/api/swap", { topic, side, on }); state.dayMe = { slots: r.slots, crews: r.crews, swap: r.swap }; renderRecSeg(); }
+  catch (e) { toast(e.message); }
+}
+
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("button, a");
+  if (!t) return;
+  if (t.dataset.shift) shiftAct(t);
+  if (t.dataset.crew) crewAct(t);
+  if (t.dataset.orgwho) orgWho(t);
+  if (t.dataset.thank) thankAct(t);
+  if (t.dataset.askthreads) { const box = $(".ask-threads", t.closest(".ask")); if (!box.hidden) { box.hidden = true; } else if (!member()) toast("Answering needs a member's key. Join on Me first."); else askThreads(t.dataset.askthreads, box); }
+  if (t.dataset.askclose) api(`/api/asks/${t.dataset.askclose}`, { action: "close" }).then(() => { toast("Closed"); renderRecSeg(); }).catch((err) => toast(err.message));
+  if (t.dataset.asksend) {
+    const box = t.closest(".ask-threads"), input = $("input", t.parentElement);
+    api(`/api/asks/${t.dataset.asksend}`, { text: input.value, to: t.dataset.to || null }).then(() => askThreads(t.dataset.asksend, box)).catch((err) => toast(err.message));
+  }
+  if (t.dataset.askpost) {
+    if (!member()) { toast("Posting an ask needs a member's key. Join on Me first."); return; }
+    const out = $(".status", t.closest(".add-ask"));
+    api("/api/asks", { kind: $("#ask-kind").value, text: $("#ask-text").value, by: $("#ask-by").value, area: $("#ask-area").value })
+      .then(() => { toast("Posted"); renderRecSeg(); }).catch((err) => (out.textContent = err.message));
+  }
+  if (t.dataset.swap) swapAct(t.dataset.topic, "learn", t.dataset.swap === "learn");
+  if (t.dataset.swapdrop) swapAct(t.dataset.swapdrop, t.dataset.side, false);
+  if (t.dataset.swapadd) { const v = $("#swap-topic").value.trim(); if (v) swapAct(v, t.dataset.swapadd, true); }
+  if (t.dataset.draftws) { state.draftWorkshop = t.dataset.draftws; }
 });
 

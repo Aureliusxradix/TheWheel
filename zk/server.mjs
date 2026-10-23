@@ -3,6 +3,8 @@
 //   POST /join     {commitment}    -> {ok, size}
 //   POST /showup   {event, code, proof} -> {ok, count} | {ok:false, why}
 //   GET  /count?event=<id>         -> {count}
+//   POST /vouch    {practitioner, proof} -> {ok, count} | {ok:false, why}   one per member per practitioner
+//   GET  /vouches?ids=a,b          -> {counts: {a: n}}
 //   POST /challenge                -> {nonce}                 single use, 5 minutes
 //   POST /login    {proof}         -> {ok, token, account}    proof scoped "wheel-account", message = the nonce
 //   GET  /session?token=           -> {ok, account}           hub only (X-Wheel-Admin)
@@ -47,6 +49,12 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && u.pathname === "/join") {
       const r = wheel.join((await body(req)).commitment)
       return send(res, r.ok ? 200 : 400, r)
+    }
+    if (req.method === "GET" && u.pathname === "/vouches") return send(res, 200, { counts: wheel.vouchCounts(String(u.searchParams.get("ids") || "").split(",").slice(0, 200)) })
+    if (req.method === "POST" && u.pathname === "/vouch") {
+      const b = await body(req)
+      const r = await wheel.vouch(b.practitioner, b.proof)
+      return send(res, r.ok ? 200 : r.why === "again" ? 409 : 400, r)
     }
     if (req.method === "POST" && u.pathname === "/showup") {
       const b = await body(req)

@@ -62,6 +62,7 @@
       <h1 id="h-mode"></h1>
       <p id="mode-lede" class="lede"></p>
     </div>
+    <div class="rec-seg" id="rec-seg" role="group" aria-label="What to look through" hidden></div>
     <div class="filters">
       <label class="search"><span class="sr-only">Search</span>
         <input id="q" type="search" autocomplete="off"></label>
@@ -72,6 +73,7 @@
     <div class="tagrow" id="facet-row"></div>
     <div class="tagrow" id="kind-row"></div>
     <div class="tagrow" id="area-row"></div>
+    <div class="tagrow mine-row" id="mine-row"></div>
     <div class="toggles">
       <label class="toggle"><input id="unreviewed" type="checkbox" checked> Show listings still waiting for review</label>
       <label class="toggle"><input id="archive" type="checkbox"> Show what already happened</label>
@@ -112,6 +114,7 @@
     <div id="rv-orgs"></div>
     <div id="rv-dupes"></div>
     <div id="rv-comms"></div>
+    <div id="rv-places"></div>
     <label class="search"><span class="sr-only">Search the review list</span>
       <input id="rq" type="search" placeholder="Find one to review: name, place, date…" autocomplete="off"></label>
     <div class="chips rq-modes" role="group" aria-label="Show listings for">
@@ -153,6 +156,9 @@
     <ul class="claims">
       <li><b>No phone number.</b> The Wheel asks for no phone number to look, to add a listing, or to help. A number is your legal name in another form.</li>
       <li><b>The organiser keeps the door.</b> Listings link to the organiser's own page when there is one. Tickets and shift sign-ups happen there, with them.</li>
+      <li><b>Practitioners choose who sees each detail.</b> Every line of a practitioner’s profile is set to everyone, members or held back. Contact details go to members unless the practitioner opens them.</li>
+      <li><b>Shifts and asks stay between the people in them.</b> Everyone sees how many took a shift; the organiser holding the listing sees the pen names. An ask’s thread is seen by its two sides only.</li>
+      <li><b>Vouches are proofs.</b> A member vouches for a practitioner with the same kind of proof as a check-in: one per member for each practitioner. The Wheel counts vouches; who vouched stays with them.</li>
       <li><b>Monero tickets go straight to the organiser.</b> You pay the organiser's own address. The Wheel checks the payment from its transaction ID and key, then keeps a fingerprint of each ticket code and a fingerprint of the payment's ID, so one payment buys once. The ID and key go once the payment settles. Your codes come from a token kept on your device, with no account and no address of yours.</li>
       <li><b>A person checks every listing.</b> Each one waits for a reviewer before it shows as checked, and links to where it was found.</li>
       <li><b>No ads, no analytics.</b> The Wheel carries no advertising and no tracking code of its own. What it knows about anyone stays off the market.</li>
@@ -217,6 +223,9 @@
       <li><b>A moderation log and appeals.</b> Every check, fix and steward decision written where anyone can read it, by role. A turned-down listing gets one more look by fresh reviewers; a rank reset goes to the stewards.</li>
       <li><b>A weekly digest,</b> every Monday morning, through The Wheel's own push server or as RSS.</li>
       <li><b>Duplicates.</b> Copies of the same listing on the same day show once; look-alikes go to Review for a person to merge or keep apart.</li>
+      <li><b>Day’s shifts, asks and crews.</b> Take a shift under your pen name and add it to your calendar with a reminder. Join an organiser’s crew so their next calls reach you first, and earn rep when they thank you. Post an ask for a lift or a borrowed gazebo, answered between pen names. The skillshare swap drafts a workshop once four people want to learn what someone can teach.</li>
+      <li><b>Recovery’s places and practitioners.</b> Saunas, hot pools and float tanks with their hours and “open now”, added by members, checked like listings and claimable by whoever runs them. Practitioners list their practice, choosing who sees each detail, and members vouch for them with a proof.</li>
+      <li><b>Each mode its own.</b> Night shows doors and last entry, what starts in the next two hours, care on the night (a quiet room, free water, drug checking) and where to meet when you come solo. Day matches shifts to your skills and Recovery to your needs, both kept on your device and matched there. Retreats list what they ask of you, and any Night links to what’s restful the day after.</li>
       <li><b>Monero tickets, paid straight to the organiser.</b> An organiser turns them on for a listing with their own address; buyers pay them directly, and The Wheel checks the payment and hands over the codes. Organisers check codes at the door.</li>
       <li><b>Where the tickets are,</b> on the card: "Tickets on Gather", Eventfinda, Humanitix and other sellers by name, linking straight there.</li>
       <li><b>Festivals stand out.</b> A larger card with the flyer across the top, the dates and a badge; opened, the line-up, tickets, camping, ages and what to bring. Add a listing has a section for each.</li>
@@ -255,6 +264,11 @@
     </ol>
 
     <h2>Next to build</h2>
+    <h3 class="rm-group">Each mode its own</h3>
+    <ul class="claims plans">
+      <li><b>Night: lineups and the way home.</b> Set times and who’s on now, an anonymous going count, the last bus or train home and a ride board for the night.</li>
+      <li><b>Every detail yours to withhold.</b> In every kind of account, each piece of information can stay with its holder.</li>
+    </ul>
     <h3 class="rm-group">At events</h3>
     <ul class="claims plans">
       <li><b>Hosts scan each phone at the door,</b> for events that want a check-in that holds firm.</li>
@@ -312,6 +326,7 @@
     <ul class="claims">
       <li><b>A listing you added passes review:</b> 2 points. One that reviewers turn down takes 2 away.</li>
       <li><b>Your review agrees with how a listing settles:</b> 1 point. A review on the other side takes 1 away.</li>
+      <li><b>An organiser thanks you for a shift:</b> 2 points, for up to 3 shifts a week. Thanks count toward Regular; Reviewer stays with listings and reviews, so review weight comes from checking.</li>
       <li><b>A weekly limit:</b> points count for up to 5 listings and 5 reviews a week, so steady use over months counts for more than a busy day.</li>
       <li><b>Points arrive once a listing settles,</b> for the person who added it and for every review on it.</li>
     </ul>
@@ -417,6 +432,8 @@
         <li><b>Sell tickets, if you like.</b> Under Monero tickets on your listing, add your own Monero address, a price in NZ$ and how many. Buyers pay you directly; their wallet's proof of payment comes to The Wheel, which checks it against your address and gives them their codes. The whole amount lands in your wallet and stays yours.</li>
         <li><b>At the door.</b> Open check-in and your phone shows a door code that changes every minute. Members type it into the listing's "I'm here". The Wheel counts how many came in; which members they were stays with each of them. Ticket codes get checked on the same screen, each one once.</li>
       </ol>
+      <h2>Practitioners and places</h2>
+      <p>The same account lists a practice in Recovery: healers, bodyworkers, counsellors. Under <b>As a practitioner</b>, each line of your profile has its own setting, everyone, members or held back, and contact can go through a private messenger like Signal. Run a sauna, hot pools or a float centre? Under <b>Places you look after</b>, claim it and keep its hours right.</p>
       <h2>Selling elsewhere too</h2>
       <p>Tickets on Gather, Eventfinda, Flicket, iTicket, Humanitix or another seller: put the link in your listing's Tickets field and the card names the seller, "Tickets on Gather", linking straight there.</p>
       <h2>Who sees what</h2>

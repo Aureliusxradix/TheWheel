@@ -73,6 +73,18 @@ def connect() -> sqlite3.Connection:
       atomic INTEGER NOT NULL, address TEXT NOT NULL, nzd REAL NOT NULL, created INTEGER NOT NULL, pay_by INTEGER NOT NULL,
       state TEXT NOT NULL, txh TEXT UNIQUE, txid TEXT, txkey TEXT, tries INTEGER NOT NULL DEFAULT 0,
       received INTEGER NOT NULL DEFAULT 0, conf INTEGER NOT NULL DEFAULT 0, note TEXT);
+    CREATE TABLE IF NOT EXISTS shift_claims (listing_id TEXT NOT NULL, slot TEXT NOT NULL, account TEXT NOT NULL,
+      day TEXT NOT NULL, thanked INTEGER NOT NULL DEFAULT 0, thanked_day TEXT, PRIMARY KEY (listing_id, slot, account));
+    CREATE TABLE IF NOT EXISTS crews (organiser_id TEXT NOT NULL, account TEXT NOT NULL, day TEXT NOT NULL,
+      PRIMARY KEY (organiser_id, account));
+    CREATE TABLE IF NOT EXISTS asks (id TEXT PRIMARY KEY, account TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL,
+      area TEXT, by_day TEXT NOT NULL, day TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'open');
+    CREATE TABLE IF NOT EXISTS ask_msgs (id INTEGER PRIMARY KEY, ask_id TEXT NOT NULL, responder TEXT NOT NULL,
+      from_asker INTEGER NOT NULL, text TEXT NOT NULL, at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS swap (account TEXT NOT NULL, topic TEXT NOT NULL, side TEXT NOT NULL, day TEXT NOT NULL,
+      PRIMARY KEY (account, topic, side));
+    CREATE TABLE IF NOT EXISTS places (id TEXT PRIMARY KEY, state TEXT NOT NULL, body TEXT NOT NULL, account TEXT,
+      day TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS tickets (fp TEXT PRIMARY KEY, listing_id TEXT NOT NULL, order_id TEXT NOT NULL,
       conf INTEGER NOT NULL DEFAULT -1, used_at INTEGER);  -- conf -1: proof in, payment yet to be seen
     """)
@@ -80,6 +92,8 @@ def connect() -> sqlite3.Connection:
     for col in ("deposited_account TEXT", "deposit_day TEXT"):  # pen names, day only: no clock times
         if col.split()[0] not in cols:
             db.execute(f"ALTER TABLE events ADD COLUMN {col}")
+    if "practice" not in {r["name"] for r in db.execute("PRAGMA table_info(organisers)")}:
+        db.execute("ALTER TABLE organisers ADD COLUMN practice TEXT")  # a practitioner's profile (2026-10-24), fields with audiences
     if "granted_tier" not in {r["name"] for r in db.execute("PRAGMA table_info(accounts)")}:
         db.execute("ALTER TABLE accounts ADD COLUMN granted_tier INTEGER")  # a tier a steward gives by hand
     if "supporter_until" not in {r["name"] for r in db.execute("PRAGMA table_info(accounts)")}:
@@ -392,6 +406,24 @@ def community_put(db, rec: dict, state: str, account: str | None = None, day: st
 def communities(db, state: str) -> list[dict]:
     return [{**json.loads(r["body"]), "state": r["state"], "_account": r["account"]}
             for r in db.execute("SELECT * FROM communities WHERE state=? ORDER BY day DESC", (state,))]
+
+
+def place_put(db, rec: dict, state: str, account: str | None = None, day: str | None = None):
+    """A place that stays (his calls 2026-10-24: saunas, hot pools), added by a member and checked like a listing."""
+    with _lock:
+        db.execute("INSERT INTO places(id, state, body, account, day) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+                   "state=excluded.state, body=excluded.body", (rec["id"], state, json.dumps(rec), account, day or now()[:10]))
+        db.commit()
+
+
+def places(db, state: str) -> list[dict]:
+    return [{**json.loads(r["body"]), "state": r["state"], "_account": r["account"]}
+            for r in db.execute("SELECT * FROM places WHERE state=? ORDER BY day DESC", (state,))]
+
+
+def place(db, pid: str) -> dict | None:
+    r = db.execute("SELECT * FROM places WHERE id=?", (pid,)).fetchone()
+    return {**json.loads(r["body"]), "state": r["state"], "_account": r["account"]} if r else None
 
 
 def community(db, cid: str) -> dict | None:
