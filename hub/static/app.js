@@ -656,7 +656,12 @@ function renderList() {
       : `<p class="empty">The search and chips hide every listing in ${MODES[state.mode].title}. Clear the search or pick another chip.</p>`
       : `<p class="empty">${MODES[state.mode].title} is empty so far. <a href="#add">Add the first listing</a> from a post, a link or a flyer.</p>`;
   }
+  const wasOpen = $$("#list .ev-name[aria-expanded=\"true\"]").map((b) => b.dataset.open);  // a re-draw keeps open cards open
   $("#list").innerHTML = html;
+  wasOpen.forEach((id) => {
+    const row = $(`#ev-${id}`);
+    if (row) { $(".more", row).hidden = false; $("[data-open]", row).setAttribute("aria-expanded", "true"); }
+  });
   if (state.focus) {  // arrived from a shared link: that listing, opened
     const row = $(`#ev-${state.focus}`);
     state.focus = null;
@@ -1087,6 +1092,7 @@ async function saveArea(e) {
 const GUIDE = [  // the short guide, rewritten 2026-10-23 for the one header, the switch and the Menu
   ["Welcome to The Wheel", `<p>Community events gathered in one place, starting in Auckland and open to anywhere. People add what they find, and other people check it. Each listing links to its organiser when there is a page.</p>`],
   ["Three ways in", `<p><b>Day</b>: workshops, skillshares and volunteer shifts. <b>Night</b>: gigs, socials and evening gatherings. <b>Recovery</b>: retreats, sound baths, breathwork and rest.</p><p>Tap one of the three tabs at the top; each has its own look. Tap a listing to open everything about it: share it, add it to your calendar, or report a problem.</p>`],
+  ["Each mode its own", `<p><b>Day</b> has buttons under its title for <b>Asks</b> (a lift, a hand, something to borrow) and <b>Skillshare</b>; open a call for helpers to take a shift under your pen name. <b>Night</b> shows doors, last entry, care on the night and where to meet when you come solo. <b>Recovery</b> has <b>Places</b> (saunas and hot pools, open now) and <b>Practitioners</b> you can contact.</p><p>Under Filters, Day matches shifts to your skills and Recovery to your needs. Both stay on your device.</p>`],
   ["Simple, or everything at once", `<p>The switch beside the name moves between two views. <b>Simple</b> shows the list first, with filters behind one button. <b>Everything at once</b> puts every filter and tool on the screen.</p><p>The <b>Menu</b> holds the rest: Communities, Review, For organisers, reading settings (Aa) and how it all works.</p>`],
   ["Add what you find", `<p>Tap <b>+ Add a listing</b>, then paste a post or a link, or drop in a flyer. The Wheel reads it and fills in the listing. You check it and send it for review.</p><p>Members check each listing before it shows as checked. Their reviews count by their <a href="#rep">rep</a>.</p>`],
   ["Your place, on your device", `<p>On <b>Me</b>, one tap makes you a key and a pen name. The key is the whole sign-up, and it stays on your device. Copy it somewhere safe, like a password manager, to sign in anywhere as the same pen name.</p><p>Run something? <a href="#org">For organisers</a> has an account of its own. What's coming next is on the <a href="#roadmap">Roadmap</a>.</p>`],

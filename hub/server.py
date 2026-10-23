@@ -36,7 +36,7 @@ from urllib.parse import parse_qs, urlsplit
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from hub import chats, day, flyer, gate, kinds, organisers, recovery, repeats, rep, share, store, support, tickets  # noqa: E402
+from hub import chats, day as daymode, flyer, gate, kinds, organisers, recovery, repeats, rep, share, store, support, tickets  # noqa: E402
 from reader import core  # noqa: E402
 
 STATIC = ROOT / "hub" / "static"
@@ -579,7 +579,7 @@ def listing(params: dict, member: bool = False) -> dict:
         dated(r, today)
         r["areas"] = store.areas_for(r, all_areas)
         if r.get("slots"):
-            r["slot_fill"] = day.fill(db(), r)  # how many took each slot; who stays with the organiser
+            r["slot_fill"] = daymode.fill(db(), r)  # how many took each slot; who stays with the organiser
         r["certainty"] = settle(dict(r))["certainty"]
         if r["review"].get("state") != "approved":  # a waiting listing shows how many reviews, never the running score
             r["certainty"] = {"reviews": r["certainty"]["reviews"]}
@@ -600,7 +600,7 @@ def shown_listing(eid: str) -> dict | None:
     rec["tags"] = kinds.apply(rec.get("tags") or [], store.merges(db()))
     holder = claimed_map().get(eid)
     if rec.get("slots"):
-        rec["slot_fill"] = day.fill(db(), rec)
+        rec["slot_fill"] = daymode.fill(db(), rec)
     if holder:
         rec["claimed_by"] = holder
         sale = tickets.sale_public(db(), eid, holder["id"]) if monero_open() else None
@@ -999,12 +999,12 @@ class Handler(BaseHTTPRequestHandler):
             acct, t = self.need(0)
             if acct is None:
                 return
-            return self.send(200, day.mine(db(), acct))
+            return self.send(200, daymode.mine(db(), acct))
         if u.path == "/api/asks":  # the ask board: open asks, newest need first
             viewer = self.account() if self.headers.get("Authorization") else None
             today = datetime.now(TZ).date().isoformat()
-            return self.send(200, {"asks": [a for a in day.asks_open(db(), today, viewer) if not gate.hit(GATE, a["text"] + " " + (a["area"] or ""))],
-                                   "kinds": day.ASK_KINDS, "member": bool(viewer)})
+            return self.send(200, {"asks": [a for a in daymode.asks_open(db(), today, viewer) if not gate.hit(GATE, a["text"] + " " + (a["area"] or ""))],
+                                   "kinds": daymode.ASK_KINDS, "member": bool(viewer)})
         m = re.fullmatch(r"/api/asks/([0-9a-f]{16})/threads", u.path)
         if m:
             acct, t = self.need(0)
@@ -1013,14 +1013,14 @@ class Handler(BaseHTTPRequestHandler):
             a = db().execute("SELECT * FROM asks WHERE id=?", (m.group(1),)).fetchone()
             if a is None:
                 return self.fail(404, "That ask has gone.")
-            return self.send(200, {"threads": day.threads(db(), dict(a), acct), "mine": a["account"] == acct})
+            return self.send(200, {"threads": daymode.threads(db(), dict(a), acct), "mine": a["account"] == acct})
         if u.path == "/api/swap":  # the skillshare swap: counts per topic
-            return self.send(200, {"topics": [x for x in day.swap_board(db()) if not gate.hit(GATE, x["topic"])], "workshop_at": day.WORKSHOP_AT})
+            return self.send(200, {"topics": [x for x in daymode.swap_board(db()) if not gate.hit(GATE, x["topic"])], "workshop_at": daymode.WORKSHOP_AT})
         if u.path == "/api/org/crew":  # the organiser's standing crew: pen names
             o = self.org_need()
             if o is None:
                 return
-            return self.send(200, {"crew": day.crew_of(db(), o["id"])})
+            return self.send(200, {"crew": daymode.crew_of(db(), o["id"])})
         m = re.fullmatch(r"/api/org/shifts/([0-9a-f]{16})", u.path)
         if m:  # who took each slot on a listing the organiser holds
             o = self.org_need()
@@ -1029,7 +1029,7 @@ class Handler(BaseHTTPRequestHandler):
             rec = store.get(db(), m.group(1))
             if rec is None or not organisers.holds(db(), o, rec["id"]):
                 return self.fail(403, "Claim this listing first.")
-            return self.send(200, {"slots": day.who_took(db(), rec), "today": datetime.now(TZ).date().isoformat()})
+            return self.send(200, {"slots": daymode.who_took(db(), rec), "today": datetime.now(TZ).date().isoformat()})
         if u.path == "/api/places":  # Recovery's places that stay; ?pending=1 for Review
             if p.get("pending", [""])[0] == "1":
                 mine = self.account() if self.headers.get("Authorization") else None
@@ -1090,7 +1090,7 @@ class Handler(BaseHTTPRequestHandler):
             if rec is None:
                 return self.fail(404, "That listing has gone, or is waiting for review.")
             sk = p.get("slot", [""])[0]
-            s = day.slots_of(rec).get(sk) if sk else None
+            s = daymode.slots_of(rec).get(sk) if sk else None
             if s:  # one shift you took: its own times, and a reminder the day before
                 shift = {**rec, "name": f"Shift: {s.get('task') or 'helping'} at {rec['name']}", "start_date": s["date"], "end_date": None,
                          "start_time": s.get("start"), "end_time": s.get("end"), "id": rec["id"] + sk}
@@ -1409,13 +1409,13 @@ class Handler(BaseHTTPRequestHandler):
                     return self.fail(404, "That listing has gone.")
                 today = datetime.now(TZ).date().isoformat()
                 if b.get("action") == "leave":
-                    day.leave(db(), rec, str(b.get("slot", "")), acct)
+                    daymode.leave(db(), rec, str(b.get("slot", "")), acct)
                 else:
                     try:
-                        day.take(db(), rec, str(b.get("slot", "")), acct, today)
+                        daymode.take(db(), rec, str(b.get("slot", "")), acct, today)
                     except LookupError as exc:
                         return self.fail(404, str(exc))
-                return self.send(200, {"slot_fill": day.fill(db(), rec), **day.mine(db(), acct)})
+                return self.send(200, {"slot_fill": daymode.fill(db(), rec), **daymode.mine(db(), acct)})
             m = re.fullmatch(r"/api/crews/([0-9a-f]{16})", u.path)
             if m:  # "ask me again": a member joins an organiser's standing crew, or leaves it
                 acct, t = self.need(0)
@@ -1424,8 +1424,8 @@ class Handler(BaseHTTPRequestHandler):
                 o = organisers.get(db(), m.group(1))
                 if o is None or not o["verified_day"]:
                     return self.fail(404, "No proven organiser by that address.")
-                day.crew_set(db(), o["id"], acct, b.get("action") != "leave", datetime.now(TZ).date().isoformat())
-                return self.send(200, day.mine(db(), acct))
+                daymode.crew_set(db(), o["id"], acct, b.get("action") != "leave", datetime.now(TZ).date().isoformat())
+                return self.send(200, daymode.mine(db(), acct))
             m = re.fullmatch(r"/api/org/thanks/([0-9a-f]{16})", u.path)
             if m:  # the organiser thanks a pen name that took a slot; it counts toward their rep
                 o = self.org_need()
@@ -1435,20 +1435,20 @@ class Handler(BaseHTTPRequestHandler):
                 if rec is None or not organisers.holds(db(), o, rec["id"]):
                     return self.fail(403, "Claim this listing first.")
                 try:
-                    day.thank(db(), rec, str(b.get("slot", "")), str(b.get("pen", "")), datetime.now(TZ).date().isoformat())
+                    daymode.thank(db(), rec, str(b.get("slot", "")), str(b.get("pen", "")), datetime.now(TZ).date().isoformat())
                 except LookupError as exc:
                     return self.fail(404, str(exc))
                 store.log(db(), "org_thanked", rec["id"], org=o["name"])
-                return self.send(200, {"slots": day.who_took(db(), rec)})
+                return self.send(200, {"slots": daymode.who_took(db(), rec)})
             if u.path == "/api/asks":  # a member posts an ask
                 acct, t = self.need(0)
                 if acct is None:
                     return
                 today = datetime.now(TZ).date().isoformat()
-                a = day.clean_ask(b, today)
+                a = daymode.clean_ask(b, today)
                 if gate.hit(GATE, a["text"] + " " + (a["area"] or "")):
                     return self.fail(400, HELD)
-                if store.count_deposit(db(), "ask:" + acct, today) > day.ASKS_A_DAY:
+                if store.count_deposit(db(), "ask:" + acct, today) > daymode.ASKS_A_DAY:
                     return self.fail(429, "That's three asks today. More tomorrow.")
                 aid = secrets.token_hex(8)
                 db().execute("INSERT INTO asks(id, account, kind, text, area, by_day, day) VALUES(?,?,?,?,?,?,?)",
@@ -1469,21 +1469,21 @@ class Handler(BaseHTTPRequestHandler):
                     db().execute("UPDATE asks SET state='closed' WHERE id=?", (a["id"],))
                     db().commit()
                     return self.send(200, {"closed": True})
-                if store.count_deposit(db(), "msg:" + acct, datetime.now(TZ).date().isoformat()) > day.MSGS_A_DAY:
+                if store.count_deposit(db(), "msg:" + acct, datetime.now(TZ).date().isoformat()) > daymode.MSGS_A_DAY:
                     return self.fail(429, "That's thirty messages today. More tomorrow.")
                 try:
-                    day.send(db(), dict(a), acct, str(b.get("to") or "") or None, b.get("text"), int(time.time()))
+                    daymode.send(db(), dict(a), acct, str(b.get("to") or "") or None, b.get("text"), int(time.time()))
                 except LookupError as exc:
                     return self.fail(404, str(exc))
-                return self.send(200, {"threads": day.threads(db(), dict(a), acct)})
+                return self.send(200, {"threads": daymode.threads(db(), dict(a), acct)})
             if u.path == "/api/swap":  # a member's skillshare line: can teach or wants to learn
                 acct, t = self.need(0)
                 if acct is None:
                     return
                 if b.get("on") and gate.hit(GATE, str(b.get("topic", ""))):
                     return self.fail(400, HELD)
-                day.swap_set(db(), acct, str(b.get("topic", "")), str(b.get("side", "")), bool(b.get("on")), datetime.now(TZ).date().isoformat())
-                return self.send(200, {**day.mine(db(), acct), "topics": day.swap_board(db())})
+                daymode.swap_set(db(), acct, str(b.get("topic", "")), str(b.get("side", "")), bool(b.get("on")), datetime.now(TZ).date().isoformat())
+                return self.send(200, {**daymode.mine(db(), acct), "topics": daymode.swap_board(db())})
             if u.path == "/api/places":  # a member adds a place that stays; it waits for review (his ruling 2026-10-24)
                 acct, t = self.need(0)
                 if acct is None:

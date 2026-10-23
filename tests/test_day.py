@@ -91,3 +91,37 @@ class Day(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ThroughTheServer(unittest.TestCase):
+    """The routes themselves, with a stand-in member (2026-10-24: a local name shadowed the module and every write 500ed)."""
+    def test_member_writes(self):
+        import threading
+        import urllib.error
+        import urllib.request
+        store.DB = TMP / "served.db"
+        server._local.__dict__.clear()
+        server.GATE = gate.load(FIXTURE, builtin=False)
+        db = server.db()
+        store.ensure_account(db, A)
+        store.put(db, json.loads(json.dumps(CALL)))
+        orig = server.Handler.account
+        server.Handler.account = lambda self: A
+        self.addCleanup(setattr, server.Handler, "account", orig)
+        srv = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.shutdown)
+
+        def post(path, body):
+            req = urllib.request.Request(f"http://127.0.0.1:{srv.server_address[1]}{path}", data=json.dumps(body).encode(), method="POST",
+                                         headers={"content-type": "application/json", "Authorization": "Bearer x"})
+            try:
+                with urllib.request.urlopen(req) as r:
+                    return r.status, json.load(r)
+            except urllib.error.HTTPError as e:
+                return e.code, json.load(e)
+        k = day.slot_key(CALL["slots"][0])
+        self.assertEqual(post(f"/api/shifts/{CALL['id']}", {"slot": k, "action": "take"})[1]["slot_fill"][0]["taken"], 1)
+        self.assertEqual(post("/api/asks", {"kind": "lift", "text": "A lift to the beach clean please", "by": SOON})[0], 200)
+        self.assertEqual(post("/api/swap", {"topic": "Sourdough", "side": "learn", "on": True})[0], 200)
+        self.assertEqual(post("/api/places", {"name": "Harbour Sauna", "locality": "Devonport"})[0], 200)

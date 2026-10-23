@@ -59,10 +59,22 @@
     // a report from a signed-in member (2026-10-22): kept, the listing still waiting; a bad reason refused
     res.report_b = (await call("/api/report/1111222233334444", { reason: "over", note: "moved to Sunday" }, lb.token)).json.reopened === false;
     res.report_bad = (await call("/api/report/1111222233334444", { reason: "spite" }, lb.token)).status === 400;
+    // round two and three (2026-10-24): a vouch made in this browser through the member service, an ask, a skillshare line
+    const P = "abcdefabcdefabcd", tomorrow = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
+    res.vouch_b = (await W.vouch(P)).ok;
+    res.vouch_again = (await W.vouch(P)).why === "again";
+    res.vouched_kept = W.vouched().includes(P);
+    res.ask_b = (await call("/api/asks", { kind: "lift", text: "A lift to the selftest gathering please", by: tomorrow }, lb.token)).status;
+    const asks = (await call("/api/asks", undefined, lb.token)).json.asks;
+    res.ask_mine = asks.length === 1 && asks[0].mine === true;
+    res.ask_others = (await call("/api/asks")).json.asks[0].mine === false;
+    res.swap_b = (await call("/api/swap", { topic: "Sourdough", side: "learn", on: true }, lb.token)).status;
+    res.swap_counts = (await call("/api/swap")).json.topics[0].learn === 1;
     res.PASS = res.profile_saved && res.redeem_ok && res.redeem_again === 400 && res.public_view && res.join_nowork && res.signout_clears && res.restore_bad && res.restore_member && res.same_pen_after_signin && res.join && !res.checkin_needs_steward === false && res.login_a && res.me_a && res.me_a.tier === 0 && res.submit_nologin === 401 && res.submit_a === 200
       && res.review_own === 403 && res.areas_a === 403 && res.login_b && res.pens_differ && res.review_b === 200
       && res.certainty_after_b && res.certainty_after_b.for === 0.2 && res.edit_applied_as_new === false && res.name_kept && res.state_after_b === "pending"
-      && res.report_b && res.report_bad;
+      && res.report_b && res.report_bad
+      && res.vouch_b && res.vouch_again && res.vouched_kept && res.ask_b === 200 && res.ask_mine && res.ask_others && res.swap_b === 200 && res.swap_counts;
   } catch (e) { res.error = String(e && e.message || e); res.PASS = false; }
   out.textContent = JSON.stringify(res, null, 1);
 })();
