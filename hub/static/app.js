@@ -456,6 +456,25 @@ function dateCell(ev, dt) {
   return `<span class="n">${dt.getDate()} ${dt.toLocaleDateString("en-NZ", { month: "short" })}<small>${fmtDay(on(ev))}</small></span>`;
 }
 
+// Where the tickets are sold, on the card face (his ask 2026-10-23, from the SWOT's move 2: The Wheel sends buyers to
+// the organiser's seller). A known seller is named; any other ticket link reads "Tickets".
+const SELLERS = [["gather.rsvp", "Gather"], ["eventfinda.co.nz", "Eventfinda"], ["eventfinder.com.au", "Eventfinder"],
+  ["humanitix.com", "Humanitix"], ["eventbrite.", "Eventbrite"], ["tickettailor.com", "Ticket Tailor"], ["trybooking.com", "TryBooking"],
+  ["iticket.co.nz", "iTICKET"], ["ticketfairy.com", "Ticket Fairy"], ["moshtix.", "Moshtix"], ["flicket.", "Flicket"],
+  ["ticketek.", "Ticketek"], ["ticketmaster.", "Ticketmaster"], ["lu.ma", "Luma"], ["partiful.com", "Partiful"]];
+function sellerOf(url) {
+  let host = "";
+  try { host = new URL(url).hostname.replace(/^www\./, ""); } catch { return null; }
+  const hit = SELLERS.find(([h]) => (h.endsWith(".") ? host.includes(h) : host === h || host.endsWith("." + h)));
+  return hit ? hit[1] : null;
+}
+function ticketBadge(ev) {
+  const links = [ev.tickets_url, ev.website, ev.source?.url].filter(Boolean);
+  const sold = links.map((u) => [u, sellerOf(u)]).find(([, n]) => n);
+  if (sold) return `<a class="ticket-badge" href="${esc(sold[0])}" target="_blank" rel="noopener">Tickets on ${esc(sold[1])}</a>`;
+  return ev.tickets_url ? `<a class="ticket-badge" href="${esc(ev.tickets_url)}" target="_blank" rel="noopener">Tickets</a>` : "";
+}
+
 function eventRow(ev, i = 0) {
   const where = [ev.location_name, ev.location_locality && !(ev.location_name || "").includes(ev.location_locality) ? ev.location_locality : null].filter(Boolean).join(", ");
   const unreviewed = ev.review?.state !== "approved";
@@ -487,6 +506,7 @@ function eventRow(ev, i = 0) {
       ${fest ? `${banner}<div class="fest-head"><span class="chip strong">Festival${fr.days > 1 ? ` · ${fr.days} days` : ""}</span><span class="fest-dates">${esc(fr.text)}</span></div>` : ""}
       <button type="button" class="ev-name" aria-expanded="false" data-open="${ev.id}">${esc(ev.name)}</button>
       <div class="meta"><span>${esc(when(ev))}</span>${where ? `<span>${esc(where)}</span>` : ""}${ev.price ? `<span>${esc(ev.price)}</span>` : ""}</div>
+      ${ev.past ? "" : ticketBadge(ev)}
       ${(() => { const more = laterDates(ev); return more.length ? `<div class="more-dates">Also on ${more.slice(0, 4).map((e) => `<a href="#l/${e.id}">${esc(fmtShort(on(e)))}</a>`).join(", ")}${more.length > 4 ? ` and ${more.length - 4} more` : ""}</div>` : ""; })()}
       ${ev.org_note ? `<div class="org-note"><b>Update from the organiser, ${esc(fmtShort(ev.org_note.day))}:</b> ${esc(ev.org_note.text)}</div>` : ""}
       ${shiftsTable(ev)}

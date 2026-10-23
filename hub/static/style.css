@@ -670,3 +670,12 @@ html[data-ui="simple"] .ev.festival:not(:has(.ev-name[aria-expanded="true"])) .c
 .top .menu-panel .menu-group { gap: 0; }
 /* the chosen mode fills the same way in both views and at every width (2026-10-23) */
 html[data-look="night"] .top nav.modes a.on { background: var(--accent); color: var(--ground); border-color: var(--accent); }
+
+/* where the tickets are sold, on the card face (2026-10-23) */
+.ticket-badge { justify-self: start; display: inline-flex; align-items: center; gap: .3em; font-size: .78rem; font-weight: 700; letter-spacing: .03em;
+  text-decoration: none; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: .15em .75em; margin: .15rem 0; }
+.ticket-badge::before { content: "🎟"; font-weight: 400; }
+.ticket-badge:hover { background: var(--accent); color: var(--ground); }
+[data-look="day"] .ticket-badge { color: #17191A; border: 2px solid #17191A; background: #FFFFFF; }
+[data-look="day"] .ticket-badge:hover { background: #17191A; color: #FFFFFF; }
+[data-look="recovery"] .ticket-badge { color: #FFFFFF; border-color: rgba(255,255,255,.8); }
