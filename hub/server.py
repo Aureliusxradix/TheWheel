@@ -36,7 +36,7 @@ from urllib.parse import parse_qs, urlsplit
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from hub import chats, flyer, gate, kinds, organisers, repeats, rep, share, store, support  # noqa: E402
+from hub import chats, flyer, gate, kinds, organisers, repeats, rep, share, store, support, tickets  # noqa: E402
 from reader import core  # noqa: E402
 
 STATIC = ROOT / "hub" / "static"
@@ -511,6 +511,9 @@ def listing(params: dict, member: bool = False) -> dict:
             continue
         if r["id"] in held:
             r["claimed_by"] = held[r["id"]]
+            sale = tickets.sale_public(db(), r["id"], held[r["id"]]["id"]) if monero_open() else None
+            if sale:
+                r["xmr_tickets"] = sale
         r["tags"] = kinds.apply(r.get("tags") or [], merged)  # shown merged; the listing keeps its own words
         dated(r, today)
         r["areas"] = store.areas_for(r, all_areas)
@@ -532,6 +535,12 @@ def shown_listing(eid: str) -> dict | None:
     if rec is None or rec.get("review", {}).get("state") not in ("approved", "pending") or withheld(public(rec)):
         return None
     rec["tags"] = kinds.apply(rec.get("tags") or [], store.merges(db()))
+    holder = claimed_map().get(eid)
+    if holder:
+        rec["claimed_by"] = holder
+        sale = tickets.sale_public(db(), eid, holder["id"]) if monero_open() else None
+        if sale:
+            rec["xmr_tickets"] = sale
     return for_viewer(dated(rec, datetime.now(TZ).date().isoformat()), False)
 
 
@@ -624,6 +633,8 @@ LOG_TEXT = {
     "org_claim_refused": "A Steward turned down a claim on {L}.",
     "org_updated": "The organiser {org} updated {fields} on {L}.",
     "org_checkin": "The organiser {org} opened check-in for {L}.",
+    "org_tickets_open": "The organiser {org} opened Monero ticket sales for {L}.",
+    "org_tickets_closed": "The organiser {org} closed Monero ticket sales for {L}.",
     "dup_merged": "A {by} merged a copy into {L}.",
     "community_checked": "Reviews checked the community \u201c{name}\u201d.",
     "community_turned_down": "Reviews turned down a community.",
@@ -832,6 +843,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self.fail(404, "That address is empty.")
             _watch_seen[0] = time.time()
             return self.send(200, {"orders": support.watch_list(db()), "address": support.XMR_ADDRESS})
+        if u.path == "/api/tickets/watch":  # the watcher: payment proofs to check against organisers' addresses
+            if not self.watcher():
+                return self.fail(404, "That address is empty.")
+            return self.send(200, {"checks": tickets.watch_list(db())})
+        m = re.fullmatch(r"/api/tickets/([A-Za-z0-9_-]{20,64})", u.path)
+        if m:  # the buyer asks after its order; paid tickets show their codes every time it asks
+            st = tickets.status(db(), m.group(1))
+            if not st:
+                return self.fail(404, "That order has ended. Start again from the listing.")
+            rec = store.get(db(), st["listing"])
+            st["name"], st["date"] = (rec.get("name"), share.on(rec)) if rec else ("", "")
+            return self.send(200, st)
         if u.path == "/api/modlog":  # the public moderation log, newest first, 100 at a time
             bf = p.get("before", [""])[0]
             return self.send(200, log_entries(int(bf) if bf.isdigit() else None))
@@ -853,7 +876,8 @@ class Handler(BaseHTTPRequestHandler):
                 r = store.get(db(), c["listing_id"])
                 if r and not withheld(public(dict(r))):
                     claims.append({"id": r["id"], "name": r["name"], "date": r["start_date"], "state": c["state"],
-                                   "listing": {k: r.get(k) for k in ORG_FIELDS + ("name", "org_note")}})
+                                   "listing": {k: r.get(k) for k in ORG_FIELDS + ("name", "org_note")},
+                                   "tickets": tickets.sale_for_org(db(), r["id"])})
             return self.send(200, {"organiser": {**organisers.public(o), "code": o["code"], "asked": bool(o["vouch_asked"])},
                                    "claims": claims})
         m = re.fullmatch(r"/api/o/([0-9a-f]{16})", u.path)
@@ -1045,6 +1069,34 @@ class Handler(BaseHTTPRequestHandler):
                 _watch_seen[0] = time.time()
                 st = support.watch_report(db(), str(b.get("id", "")), int(b.get("confirmations") or 0))
                 return self.send(200, {"state": st})
+            if u.path == "/api/tickets/quote":  # Monero tickets, paid to the organiser's own address (his call 2026-10-24)
+                if not monero_open():
+                    return self.fail(503, "Monero tickets are paused while the payment checker is offline. Try again later.")
+                rate = support.xmr_nzd()
+                if not rate:
+                    return self.fail(503, "The Monero price failed to load. Try again in a few minutes.")
+                if over_cap("order"):
+                    return self.fail(429, CAP_TEXT["order"])
+                eid, qty = str(b.get("listing", "")), b.get("qty")
+                holder = claimed_map().get(eid)
+                try:
+                    return self.send(200, tickets.quote(db(), eid, qty if isinstance(qty, int) else 0, rate,
+                                                        holder["id"] if holder else None))
+                except LookupError as exc:
+                    return self.fail(404, str(exc))
+            if u.path == "/api/tickets/watch":
+                if not self.watcher():
+                    return self.fail(404, "That address is empty.")
+                err = b.get("error")
+                st = tickets.watch_report(db(), str(b.get("id", "")), b.get("received"), b.get("confirmations") or 0,
+                                          bool(b.get("in_pool")), str(err)[:200] if err is not None else None)
+                return self.send(200, {"state": st})
+            m = re.fullmatch(r"/api/tickets/([A-Za-z0-9_-]{20,64})", u.path)
+            if m:  # the buyer's proof of payment: the transaction id and its key, from their wallet
+                try:
+                    return self.send(200, tickets.prove(db(), m.group(1), b.get("txid"), b.get("txkey")))
+                except LookupError as exc:
+                    return self.fail(404, str(exc))
             if u.path == "/api/read":
                 acct, t = self.need(0)
                 if acct is None:
@@ -1146,7 +1198,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 organisers.ask_vouch(db(), o["id"])
                 return self.send(200, {"asked": True})
-            m = re.fullmatch(r"/api/org/(claim|update|checkin)/([0-9a-f]{16})", u.path)
+            m = re.fullmatch(r"/api/org/(claim|update|checkin|tickets|door)/([0-9a-f]{16})", u.path)
             if m:
                 o = self.org_need()
                 if o is None:
@@ -1164,6 +1216,16 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(200, {"state": st})
                 if not organisers.holds(db(), o, rec["id"]):
                     return self.fail(403, "Claim this listing first.")
+                if m.group(1) == "tickets":  # the organiser's Monero ticket sale: its own address, price, how many
+                    open_before = bool((tickets.sale(db(), rec["id"]) or {"open": 0})["open"])
+                    cap = b.get("cap")
+                    st = tickets.set_sale(db(), rec["id"], o["id"], b.get("address"), b.get("nzd"),
+                                          cap if isinstance(cap, int) else 0, bool(b.get("open")))
+                    if st["open"] != open_before:
+                        store.log(db(), "org_tickets_open" if st["open"] else "org_tickets_closed", rec["id"], org=o["name"])
+                    return self.send(200, {"tickets": st})
+                if m.group(1) == "door":  # a ticket code checked at the door, marked used the first time
+                    return self.send(200, tickets.door(db(), rec["id"], str(b.get("code", ""))[:20]))
                 if m.group(1) == "update":
                     changed = org_update(rec, o, b)
                     if changed:

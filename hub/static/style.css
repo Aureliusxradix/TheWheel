@@ -679,3 +679,16 @@ html[data-look="night"] .top nav.modes a.on { background: var(--accent); color: 
 [data-look="day"] .ticket-badge { color: #17191A; border: 2px solid #17191A; background: #FFFFFF; }
 [data-look="day"] .ticket-badge:hover { background: #17191A; color: #FFFFFF; }
 [data-look="recovery"] .ticket-badge { color: #FFFFFF; border-color: rgba(255,255,255,.8); }
+
+/* Monero tickets, paid straight to the organiser (2026-10-24) */
+.xmr-buy { display: grid; justify-items: start; }
+button.ticket-badge { font-family: inherit; background: transparent; cursor: pointer; line-height: inherit; }
+button.ticket-badge.xmr::before { content: "ɱ"; font-weight: 700; }
+.xmr-tix { width: 100%; max-width: 34rem; }
+.tix-codes { list-style: none; padding: 0; margin: .4rem 0; display: grid; gap: .3rem; }
+.tix-codes code { font-size: 1.5rem; letter-spacing: .12em; font-variant-numeric: tabular-nums; }
+.my-tix { border-top: 1px solid var(--soft-rule); padding: .6rem 0; }
+.org-tix { margin-top: .6rem; }
+.door-tix { width: 100%; text-align: start; }
+.door-tix input { text-transform: uppercase; letter-spacing: .1em; }
+.status.ok { color: var(--accent); font-weight: 700; }

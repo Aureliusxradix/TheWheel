@@ -67,6 +67,14 @@ def connect() -> sqlite3.Connection:
       state TEXT NOT NULL DEFAULT 'open');
     CREATE TABLE IF NOT EXISTS reports (listing_id TEXT NOT NULL, account TEXT NOT NULL, reason TEXT NOT NULL, note TEXT,
       weight REAL NOT NULL, day TEXT NOT NULL, open INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (listing_id, account));
+    CREATE TABLE IF NOT EXISTS ticket_sales (listing_id TEXT PRIMARY KEY, organiser_id TEXT NOT NULL, address TEXT NOT NULL,
+      nzd REAL NOT NULL, cap INTEGER NOT NULL, open INTEGER NOT NULL DEFAULT 1, day TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS ticket_orders (id TEXT PRIMARY KEY, listing_id TEXT NOT NULL, qty INTEGER NOT NULL,
+      atomic INTEGER NOT NULL, address TEXT NOT NULL, nzd REAL NOT NULL, created INTEGER NOT NULL, pay_by INTEGER NOT NULL,
+      state TEXT NOT NULL, txh TEXT UNIQUE, txid TEXT, txkey TEXT, tries INTEGER NOT NULL DEFAULT 0,
+      received INTEGER NOT NULL DEFAULT 0, conf INTEGER NOT NULL DEFAULT 0, note TEXT);
+    CREATE TABLE IF NOT EXISTS tickets (fp TEXT PRIMARY KEY, listing_id TEXT NOT NULL, order_id TEXT NOT NULL,
+      conf INTEGER NOT NULL DEFAULT -1, used_at INTEGER);  -- conf -1: proof in, payment yet to be seen
     """)
     cols = {r["name"] for r in db.execute("PRAGMA table_info(events)")}
     for col in ("deposited_account TEXT", "deposit_day TEXT"):  # pen names, day only: no clock times

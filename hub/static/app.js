@@ -507,6 +507,9 @@ function eventRow(ev, i = 0) {
       <button type="button" class="ev-name" aria-expanded="false" data-open="${ev.id}">${esc(ev.name)}</button>
       <div class="meta"><span>${esc(when(ev))}</span>${where ? `<span>${esc(where)}</span>` : ""}${ev.price ? `<span>${esc(ev.price)}</span>` : ""}</div>
       ${ev.past ? "" : ticketBadge(ev)}
+      ${ev.past || !ev.xmr_tickets ? "" : ev.xmr_tickets.left > 0
+        ? `<div class="xmr-buy"><button type="button" class="ticket-badge xmr" data-xmrbuy="${ev.id}" aria-expanded="false">Pay in Monero, NZ$${esc(fmtNzd(ev.xmr_tickets.nzd))}</button><div class="xmr-tix" hidden></div></div>`
+        : `<span class="chip">Monero tickets sold out</span>`}
       ${(() => { const more = laterDates(ev); return more.length ? `<div class="more-dates">Also on ${more.slice(0, 4).map((e) => `<a href="#l/${e.id}">${esc(fmtShort(on(e)))}</a>`).join(", ")}${more.length > 4 ? ` and ${more.length - 4} more` : ""}</div>` : ""; })()}
       ${ev.org_note ? `<div class="org-note"><b>Update from the organiser, ${esc(fmtShort(ev.org_note.day))}:</b> ${esc(ev.org_note.text)}</div>` : ""}
       ${shiftsTable(ev)}
@@ -1133,7 +1136,7 @@ function route() {
   if (view === "org") { (state.events.length ? Promise.resolve() : api("/api/events?unreviewed=1").then((d) => (state.events = d.events))).then(loadOrg).catch((e) => ($("#org-body").innerHTML = `<p class="status err">${esc(e.message)}</p>`)); }
   if (view === "o") loadPublicOrg(location.hash.slice(1).split("/")[1]);
   if (view === "log") loadLog().catch((e) => ($("#modlog").innerHTML = `<li class="status err">${esc(e.message)}</li>`));
-  if (view === "me") loadMe().catch((e) => ($("#me-body").innerHTML = `<p class="status err">${esc(e.message)}</p>`));
+  if (view === "me") { loadMe().catch((e) => ($("#me-body").innerHTML = `<p class="status err">${esc(e.message)}</p>`)); loadMyTickets(); }
 }
 
 document.addEventListener("click", (e) => {
@@ -1578,7 +1581,9 @@ function orgClaimCard(c) {
   if (c.state !== "claimed") return `<div class="org-claim"><b>${esc(c.name)}</b>, ${esc(fmtShort(c.date))}: <span class="hint">waiting for a steward</span></div>`;
   return `<div class="org-claim" data-lid="${c.id}"><b>${esc(c.name)}</b>, ${esc(fmtShort(c.date))}
     <div class="actions"><button type="button" class="primary" data-orgdoor="${c.id}">Open check-in</button>
-      <button type="button" class="quiet" data-orgedit="1" aria-expanded="false">Update it</button></div>
+      <button type="button" class="quiet" data-orgedit="1" aria-expanded="false">Update it</button>
+      <button type="button" class="quiet" data-orgtixedit="1" aria-expanded="false">Monero tickets${c.tickets?.open ? `: ${c.tickets.sold} sold` : ""}</button></div>
+    ${orgTixForm(c)}
     <div class="org-edit" hidden>
       <label for="st-${c.id}">Status</label><select id="st-${c.id}" data-of="status">${["confirmed", "tentative", "postponed", "cancelled"].map((v) =>
         `<option value="${v}"${(l.status || "confirmed") === v ? " selected" : ""}>${v}</option>`).join("")}</select>
@@ -1613,10 +1618,15 @@ async function showDoor() {
   if (now > DOOR.closes) { el.innerHTML = `<div class="door-panel"><h2 id="door-h">Check-in closed</h2><button type="button" class="primary" data-doorclose="1">Close</button></div>`; return; }
   const minute = Math.floor(now / DOOR.rotate), left = Math.ceil(((minute + 1) * DOOR.rotate - now) / 1000);
   const code = await rotatingCode(DOOR.secret, DOOR.id, minute);
-  el.innerHTML = `<div class="door-panel"><p class="hint">${esc(DOOR.name)}</p><h2 id="door-h">Door code</h2>
-    <div class="doorcode">${esc(code)}</div><p>Changes in ${left} s. A code works for about three minutes, so one passed around outside soon stops.</p>
-    <p class="hint">Members type it into the listing's "I'm here". Open until ${esc(new Date(DOOR.closes).toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" }))}.</p>
-    <button type="button" class="quiet" data-doorclose="1">Hide the code</button></div>`;
+  if (!$(".door-panel .doorcode", el)) {
+    el.innerHTML = `<div class="door-panel"><p class="hint">${esc(DOOR.name)}</p><h2 id="door-h">Door code</h2>
+      <div class="doorcode"></div><p>Changes in <span class="door-left"></span> s. A code works for about three minutes, so one passed around outside soon stops.</p>
+      <p class="hint">Members type it into the listing's "I'm here". Open until ${esc(new Date(DOOR.closes).toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" }))}.</p>
+      ${doorTixBox(DOOR.id)}
+      <button type="button" class="quiet" data-doorclose="1">Hide the code</button></div>`;
+  }
+  $(".doorcode", el).textContent = code;
+  $(".door-left", el).textContent = left;
   showDoor.t = setTimeout(showDoor, 1000);
   try { if (!showDoor.lock && navigator.wakeLock) showDoor.lock = await navigator.wakeLock.request("screen"); } catch {}
 }
@@ -1843,3 +1853,157 @@ route();
   if (q.has("guide") || (!seen && !q.has("shot") && !/^#(l\/|org$)/.test(location.hash))) openGuide();  // a shared link opens its listing; an organiser link opens For organisers
 })();
 refreshCount();
+
+/* ---------- Monero tickets, paid straight to the organiser (his calls 2026-10-24) ----------
+   The buyer pays the organiser's own address; their wallet's transaction ID and key prove it, and the checker beside
+   the Monero node confirms the amount from those alone. The browser keeps the order's token; the codes come from it. */
+const TIX_KEY = "wheel.tickets";
+const fmtNzd = (n) => (Number.isInteger(+n) ? String(+n) : (+n).toFixed(2));
+function savedTix() { try { return JSON.parse(localStorage.getItem(TIX_KEY) || "[]"); } catch { return []; } }
+function keepTix(entry) {
+  const all = savedTix().filter((x) => x.token !== entry.token);
+  all.unshift(entry);
+  try { localStorage.setItem(TIX_KEY, JSON.stringify(all.slice(0, 50))); } catch {}
+}
+
+function tixBuyForm(ev) {
+  const most = Math.min(10, ev.xmr_tickets.left);
+  return `<div class="xmr-pay">
+    <label for="tq-${ev.id}">How many tickets (up to ${most})</label>
+    <input id="tq-${ev.id}" type="number" inputmode="numeric" min="1" max="${most}" step="1" value="1">
+    <p class="hint">NZ$${esc(fmtNzd(ev.xmr_tickets.nzd))} each. You pay the organiser directly, in Monero; The Wheel checks the payment and gives you the codes.</p>
+    <button type="button" class="primary" data-xmrquote="${ev.id}">Get the amount</button><p class="status" role="status"></p></div>`;
+}
+
+function tixPayForm(id, q) {
+  const by = new Date(q.pay_by * 1000).toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" });
+  return `<div class="xmr-pay">
+    <label for="ta-${id}">Send to the organiser's address</label><div class="keyrow"><input id="ta-${id}" readonly value="${esc(q.address)}" spellcheck="false"><button type="button" class="quiet" data-copyfield="ta-${id}">Copy</button></div>
+    <label for="tm-${id}">This amount of XMR, or more</label><div class="keyrow"><input id="tm-${id}" readonly value="${esc(q.amount)}" spellcheck="false"><button type="button" class="quiet" data-copyfield="tm-${id}">Copy</button></div>
+    <p class="hint">${q.qty} ${q.qty === 1 ? "ticket" : "tickets"}, NZ$${esc(fmtNzd(q.nzd))}. The amount holds until ${esc(by)}.</p>
+    <p>Once it's sent, your wallet shows the transaction's ID and its key, in the transaction's details. Paste both here.</p>
+    <label for="ti-${id}">Transaction ID</label><input id="ti-${id}" autocomplete="off" spellcheck="false">
+    <label for="tk-${id}">Transaction key</label><input id="tk-${id}" autocomplete="off" spellcheck="false">
+    <button type="button" class="primary" data-xmrprove="${esc(q.token)}" data-lid="${id}">Check my payment</button><p class="status" role="status"></p></div>`;
+}
+
+function tixStateHtml(st, token) {
+  const id = st.listing;
+  if (st.codes) {
+    return `<div class="warn tix-done"><p><b>${st.codes.length === 1 ? "Your ticket" : "Your tickets"}${st.name ? ` for ${esc(st.name)}` : ""}</b></p>
+      <ul class="tix-codes">${st.codes.map((c) => `<li><code>${esc(c)}</code></li>`).join("")}</ul>
+      <p class="hint">Show a code at the door; each one lets one person in. They're kept on this device under <a href="#me">Me</a>.${st.state === "paid" ? "" : ` Payment seen, ${st.confirmations} of ${st.need} confirmations so far.`}</p></div>`;
+  }
+  if (st.state === "quoted") return tixPayForm(id, { ...st, token });
+  if (st.state === "bad") return `<p class="status err">${esc(st.note || "That proof failed to check.")}</p>${tixPayForm(id, { ...st, token })}`;
+  if (st.state === "short") return `<p class="status err">${esc(st.note)} Arrived: ${esc(st.received)} XMR of ${esc(st.amount)}.</p>`;
+  return `<p class="status" role="status">Checking your payment. The checker looks every two minutes; this page asks every 30 seconds, and you can close it and find the tickets under Me later.</p>`;
+}
+
+async function tixQuote(btn) {
+  const id = btn.dataset.xmrquote, box = btn.closest(".xmr-tix"), out = $(".status", box);
+  btn.disabled = true;
+  try {
+    const q = await api("/api/tickets/quote", { listing: id, qty: Math.round(Number($(`#tq-${id}`).value) || 0) });
+    const ev = state.events.find((e) => e.id === id) || {};
+    keepTix({ token: q.token, listing: id, name: ev.name || "", date: ev.start_date || "" });
+    box.innerHTML = tixPayForm(id, q);
+  } catch (e) { out.textContent = e.message; btn.disabled = false; }
+}
+
+async function tixProve(btn) {
+  const id = btn.dataset.lid, token = btn.dataset.xmrprove, box = btn.closest(".xmr-tix, .my-tix-one"), out = $(".status", btn.parentElement);
+  btn.disabled = true;
+  try {
+    const st = await api(`/api/tickets/${token}`, { txid: $(`[id="ti-${id}"]`, box).value, txkey: $(`[id="tk-${id}"]`, box).value });  // scoped: Me can hold two orders for one listing
+    box.innerHTML = tixStateHtml(st, token);
+    tixWatch(token, box);
+  } catch (e) { out.textContent = e.message; btn.disabled = false; }
+}
+
+async function tixWatch(token, box) {
+  clearTimeout(box._t);
+  try {
+    const st = await api(`/api/tickets/${token}`);
+    if (!box.isConnected) return;
+    if (!$("input:focus", box)) box.innerHTML = tixStateHtml(st, token);
+    if (st.state === "checking" || st.state === "issued") box._t = setTimeout(() => tixWatch(token, box), 30000);
+  } catch (e) { if (box.isConnected) box.innerHTML = `<p class="status">${esc(e.message)}</p>`; }
+}
+
+async function loadMyTickets() {
+  let el = $("#my-tickets");
+  if (!el) { $("#me-body").insertAdjacentHTML("afterend", `<div id="my-tickets"></div>`); el = $("#my-tickets"); }
+  const all = savedTix();
+  if (!all.length) { el.innerHTML = ""; return; }
+  el.innerHTML = `<div class="card"><h2>Your tickets</h2><p class="hint">Kept on this device. Each order shows its codes once its payment is seen.</p>
+    ${all.map((t, i) => `<div class="my-tix"><p><b>${esc(t.name || "A listing")}</b>${t.date ? `, ${esc(fmtShort(t.date))}` : ""} <a href="#l/${esc(t.listing)}">the listing</a></p><div class="my-tix-one" data-i="${i}"><p class="status">Checking…</p></div></div>`).join("")}</div>`;
+  all.forEach((t, i) => {
+    const box = $(`.my-tix-one[data-i="${i}"]`, el);
+    api(`/api/tickets/${t.token}`).then((st) => { box.innerHTML = tixStateHtml(st, t.token); if (st.state === "checking" || st.state === "issued") tixWatch(t.token, box); })
+      .catch(() => { box.innerHTML = `<p class="hint">This order has ended: an order left unpaid goes after a day.</p><button type="button" class="quiet" data-tixforget="${esc(t.token)}">Remove it</button>`; });
+  });
+}
+
+function orgTixForm(c) {
+  const t = c.tickets || {};
+  return `<div class="org-tix" hidden>
+    <p class="lede">Sell tickets paid in Monero, straight to your own wallet. The money stays with you: The Wheel checks each buyer's proof of payment against your address and gives them their codes. You check the codes at the door.</p>
+    ${t.address ? `<p>${t.sold} sold, ${t.used} let in${t.held ? `, ${t.held} waiting on payment` : ""}.</p>` : ""}
+    <label for="tx-a-${c.id}">Your Monero address (a subaddress kept for this event keeps it apart)</label><input id="tx-a-${c.id}" value="${esc(t.address || "")}" spellcheck="false" autocomplete="off">
+    <div class="fields"><div><label for="tx-p-${c.id}">Price per ticket, NZ$</label><input id="tx-p-${c.id}" type="number" inputmode="decimal" min="1" step="1" value="${esc(t.nzd ?? "")}"></div>
+      <div><label for="tx-n-${c.id}">How many tickets</label><input id="tx-n-${c.id}" type="number" inputmode="numeric" min="1" step="1" value="${esc(t.cap ?? "")}"></div></div>
+    <label class="tick"><input type="checkbox" id="tx-o-${c.id}"${t.open ? " checked" : ""}> On sale on the listing</label>
+    <p class="hint">Buyers pay the NZ$ price in XMR at the day's rate. A ticket shows at the door as soon as its payment is seen; the door check tells you how many of its 10 confirmations it has.</p>
+    <div class="actions"><button type="button" class="quiet" data-orgtix="${c.id}">Save</button></div><p class="status" role="status"></p>
+    ${t.address ? `<h3>Check a ticket</h3>${doorTixBox(c.id)}` : ""}</div>`;
+}
+
+function doorTixBox(id) {
+  return `<div class="door-tix"><label for="dt-${id}">Ticket code</label>
+    <div class="keyrow"><input id="dt-${id}" autocomplete="off" spellcheck="false" autocapitalize="characters" placeholder="ABCD-EFGH"><button type="button" class="quiet" data-doortix="${id}">Check</button></div>
+    <p class="status" role="status"></p></div>`;
+}
+
+async function orgTixSave(btn) {
+  const id = btn.dataset.orgtix, box = btn.closest(".org-tix"), out = $(":scope > .status", box);
+  try {
+    const r = await orgApi(`/api/org/tickets/${id}`, { address: $(`#tx-a-${id}`).value.trim(), nzd: Number($(`#tx-p-${id}`).value),
+      cap: Math.round(Number($(`#tx-n-${id}`).value) || 0), open: $(`#tx-o-${id}`).checked });
+    out.textContent = r.tickets.open ? "Saved. The listing offers Monero tickets now." : "Saved. Sales are off on the listing.";
+  } catch (e) { out.textContent = e.message; }
+}
+
+async function doorTixCheck(btn) {
+  const id = btn.dataset.doortix, box = btn.closest(".door-tix"), out = $(".status", box), input = $(`#dt-${id}`, box);
+  try {
+    const r = await orgApi(`/api/org/door/${id}`, { code: input.value });
+    const at = r.at ? new Date(r.at * 1000).toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" }) : "";
+    out.textContent = r.state === "valid" ? "√ Good. Let them in."
+      : r.state === "confirming" ? `√ Paid, ${r.confirmations} of ${r.need} confirmations so far. Let them in, or wait a few minutes.`
+      : r.state === "used" ? `Already used, at ${at}.` : "Unknown code. Check it letter by letter.";
+    out.className = `status ${r.state === "valid" || r.state === "confirming" ? "ok" : "err"}`;
+    if (r.state === "valid" || r.state === "confirming") input.value = "";
+    input.focus();
+  } catch (e) { out.textContent = e.message; }
+}
+
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("button, a");
+  if (!t) return;
+  if (t.dataset.xmrbuy) {
+    const box = $(".xmr-tix", t.parentElement), ev = state.events.find((x) => x.id === t.dataset.xmrbuy);
+    box.hidden = !box.hidden; t.setAttribute("aria-expanded", String(!box.hidden));
+    if (!box.hidden && !box.innerHTML.trim() && ev) box.innerHTML = tixBuyForm(ev);
+  }
+  if (t.dataset.xmrquote) tixQuote(t);
+  if (t.dataset.xmrprove) tixProve(t);
+  if (t.dataset.tixforget) { try { localStorage.setItem(TIX_KEY, JSON.stringify(savedTix().filter((x) => x.token !== t.dataset.tixforget))); } catch {} loadMyTickets(); }
+  if (t.dataset.orgtixedit) { const f = $(".org-tix", t.closest(".org-claim")); f.hidden = !f.hidden; t.setAttribute("aria-expanded", String(!f.hidden)); }
+  if (t.dataset.orgtix) orgTixSave(t);
+  if (t.dataset.doortix) doorTixCheck(t);
+});
+document.addEventListener("keydown", (e) => {  // Enter in the ticket box checks it: one hand at the door
+  if (e.key === "Enter" && e.target.closest?.(".door-tix")) { e.preventDefault(); $("[data-doortix]", e.target.closest(".door-tix")).click(); }
+});
+
