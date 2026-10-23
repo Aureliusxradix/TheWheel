@@ -1,6 +1,10 @@
 <!doctype html><meta charset="utf-8"><title>wheel zk selftest</title>
 <pre id="out" style="font: 15px monospace">running…</pre>
 <img src="/__wait?ms=8000" hidden>
+<script>
+// the page holds its load event until the test is done (one wait after another), so the screenshot shows the result
+(function hold() { if (window.__done) return; const i = new Image(); i.hidden = true; i.onload = i.onerror = () => hold(); i.src = "/__wait?ms=3000&n=" + Math.random(); document.documentElement.append(i); })();
+</script>
 <script src="/vendor/wheel-zk.js"></script>
 <script>
 // Real proofs in a real browser against a throwaway member service and store. Run by tests/browser/run.sh only.
@@ -70,12 +74,18 @@
     res.ask_others = (await call("/api/asks")).json.asks[0].mine === false;
     res.swap_b = (await call("/api/swap", { topic: "Sourdough", side: "learn", on: true }, lb.token)).status;
     res.swap_counts = (await call("/api/swap")).json.topics[0].learn === 1;
+    // round four: Going made in this browser, refused twice, taken back by the same member
+    const G = "cccccccccccccccc";
+    res.going = (await W.going(G)).count === 1;
+    res.going_again = (await W.going(G)).why === "again";
+    res.going_undo = (await W.going(G, true)).count === 0 && !W.goings().includes(G);
     res.PASS = res.profile_saved && res.redeem_ok && res.redeem_again === 400 && res.public_view && res.join_nowork && res.signout_clears && res.restore_bad && res.restore_member && res.same_pen_after_signin && res.join && !res.checkin_needs_steward === false && res.login_a && res.me_a && res.me_a.tier === 0 && res.submit_nologin === 401 && res.submit_a === 200
       && res.review_own === 403 && res.areas_a === 403 && res.login_b && res.pens_differ && res.review_b === 200
       && res.certainty_after_b && res.certainty_after_b.for === 0.2 && res.edit_applied_as_new === false && res.name_kept && res.state_after_b === "pending"
       && res.report_b && res.report_bad
-      && res.vouch_b && res.vouch_again && res.vouched_kept && res.ask_b === 200 && res.ask_mine && res.ask_others && res.swap_b === 200 && res.swap_counts;
+      && res.vouch_b && res.vouch_again && res.vouched_kept && res.ask_b === 200 && res.ask_mine && res.ask_others && res.swap_b === 200 && res.swap_counts && res.going && res.going_again && res.going_undo;
   } catch (e) { res.error = String(e && e.message || e); res.PASS = false; }
   out.textContent = JSON.stringify(res, null, 1);
+  window.__done = true;
 })();
 </script>

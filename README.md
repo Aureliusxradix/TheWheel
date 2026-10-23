@@ -7,7 +7,7 @@ run your own Wheel from this code. (The reader reads times as Auckland time for 
 setting to add.)
 
 Live at **[aureliusxradix.com/thewheel](https://aureliusxradix.com/thewheel/)**, version one. The roadmap is on
-the site, under Additional info.
+the site, under the Menu.
 
 ## How it works
 
@@ -30,6 +30,24 @@ the site, under Additional info.
   the reader sees it, and reviewers check the listing against that cleaned text (`hub/chats.py`).
 - **Pasted links** are fetched from the public internet only: the address the server dials must be public, so a
   link into the host's own network goes nowhere (`reader/netguard.py`).
+- **Organisers.** An organiser account has its own key, apart from any member's, and proves its page with a code
+  placed on it or a steward's word. It claims listings, keeps them right, posts updates and opens check-ins with a
+  door code that changes every minute (`hub/organisers.py`, `zk/core.mjs`).
+- **Each mode its own.**
+  - *Day* (`hub/day.py`): shifts taken under a pen name, the organiser's view of who is coming and thanks that add
+    to rep (toward Regular only), crews, an ask board whose threads only its two sides see, and a skillshare swap
+    that shows counts only.
+  - *Night*: set times, a Going count, care on the night, the last ride home and a ride board. Going is a
+    Semaphore proof scoped to the listing, counted once and taken back with the same member's proof. The last ride
+    comes from Auckland Transport's public GTFS feed, indexed weekly on the server (`hub/transit.py`;
+    `WHEEL_TRANSIT=0` turns it off, and another city's feed is a different `transit.URL`).
+  - *Recovery* (`hub/recovery.py`): places that stay, such as saunas and hot pools, added by members, checked like
+    listings and claimable by organisers; practitioners whose every profile field has its own audience; and
+    vouches, one Semaphore proof per member per practitioner.
+- **Monero tickets** go straight to the organiser's own address. The buyer's wallet proves the payment (its
+  transaction id and key), and a watcher beside a Monero node checks it with `check_tx_key`: the money and every
+  view key stay with the organiser. Ticket codes come from the buyer's token; the store keeps fingerprints
+  (`hub/tickets.py`).
 
 ## Run your own
 
@@ -57,9 +75,9 @@ at the top of `hub/server.py`.
 
 | Path | What |
 |---|---|
-| `hub/` | the web app: server, store, rep, gate, flyers, steward tool (`wheelctl.py`), the page in `static/` |
+| `hub/` | the web app: server, store, rep, gate, flyers, organisers, each mode's own (`day.py`, `recovery.py`, `transit.py`), tickets, steward tool (`wheelctl.py`), the page in `static/` |
 | `reader/` | turning a post, link, flyer or calendar file into listings |
-| `zk/` | the member service (Semaphore groups, sign-in, check-ins) and the browser client |
+| `zk/` | the member service (Semaphore groups, sign-in, check-ins, vouches, Going) and the browser client |
 | `prompts/`, `schema/` | the reader's prompt versions and the event schema |
 | `site/` | building the static page for a public site |
 | `ops/` | sealed backups |

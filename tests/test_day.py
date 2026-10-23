@@ -127,3 +127,24 @@ class ThroughTheServer(unittest.TestCase):
         self.assertEqual(post("/api/places", {"name": "Harbour Sauna", "locality": "Devonport"})[0], 200)
         code, got = post(f"/api/rides/{CALL['id']}", {"kind": "offer", "dir": "to", "seats": 2, "area": "Orewa"})
         self.assertEqual((code, got["rides"][0]["mine"]), (200, True))
+
+        def get(path):
+            req = urllib.request.Request(f"http://127.0.0.1:{srv.server_address[1]}{path}", headers={"Authorization": "Bearer x"})
+            try:
+                with urllib.request.urlopen(req) as r:
+                    return r.status, json.load(r)
+            except urllib.error.HTTPError as e:
+                return e.code, json.load(e)
+        # every member read answers (QA 2026-10-24: reads too, after the writes' shadowed name)
+        for path in ("/api/day/me", "/api/asks", "/api/swap", "/api/places", "/api/places?pending=1", "/api/practitioners",
+                     f"/api/rides/{CALL['id']}", "/api/events", f"/api/ics/{CALL['id']}.ics?slot={k}"):
+            if path.endswith(f"slot={k}"):
+                req = urllib.request.Request(f"http://127.0.0.1:{srv.server_address[1]}{path}")
+                with urllib.request.urlopen(req) as r:
+                    self.assertIn(b"TRIGGER:-P1D", r.read(), "the shift's reminder")
+                continue
+            self.assertEqual(get(path)[0], 200, path)
+        aid = get("/api/asks")[1]["asks"][0]["id"]
+        self.assertEqual(get(f"/api/asks/{aid}/threads")[0], 200)
+        self.assertEqual(post(f"/api/asks/{aid}", {"action": "close"})[0], 200)
+        self.assertEqual(post(f"/api/shifts/{CALL['id']}", {"slot": k, "action": "leave"})[1]["slot_fill"][0]["taken"], 0)
