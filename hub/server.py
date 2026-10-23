@@ -409,6 +409,13 @@ def duplicate_pairs() -> list[dict]:
     return sorted(out, key=lambda p: (not p["exact"], p["listings"][0]["start_date"]))
 
 
+def offered_pair(a: str, b: str) -> bool:
+    """Whether The Wheel's own duplicate check offers this pair (incentive review 2026-10-23: the merge took any two
+    listings, so a Reviewer could hide any listing as "a copy")."""
+    want = tuple(sorted((a, b)))
+    return any(tuple(sorted(x["id"] for x in p["listings"])) == want for p in duplicate_pairs())
+
+
 def dup_summary(r: dict) -> dict:
     keys = ("id", "name", "start_date", "start_time", "end_time", "location_name", "location_locality", "price", "website",
             "tickets_url", "modes", "review", "recurrence")
@@ -508,6 +515,8 @@ def listing(params: dict, member: bool = False) -> dict:
         dated(r, today)
         r["areas"] = store.areas_for(r, all_areas)
         r["certainty"] = settle(dict(r))["certainty"]
+        if r["review"].get("state") != "approved":  # a waiting listing shows how many reviews, never the running score
+            r["certainty"] = {"reviews": r["certainty"]["reviews"]}
         out.append(for_viewer(r, member))
     tags: dict[str, int] = {}
     for r in out:
@@ -792,6 +801,8 @@ class Handler(BaseHTTPRequestHandler):
                     r["suggestions"] = shown_suggestions(sugs)
                 if mine:  # reports go to signed-in members, like a group's announcement
                     r["reports"] = reported(r)
+                if not (r["mine"] or r["my_verdict"]):  # the score after the answer (incentive review 2026-10-23)
+                    r["certainty"] = {"reviews": r["certainty"]["reviews"]}
                 for_viewer(public(r), bool(mine))
             return self.send(200, {"events": recs, "me": rep.summary(db(), mine) if mine else None})
         if u.path == "/api/support":
@@ -1227,6 +1238,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.fail(404, "One of those listings has gone. Reload Review.")
                 if acct in (recs[0].get("deposited_account"), recs[1].get("deposited_account")):
                     return self.fail(403, "You added one of these, so someone else decides.")
+                if not offered_pair(ids[0], ids[1]):
+                    return self.fail(403, "Only a pair from Possible duplicates can be merged or kept apart. Reload Review.")
                 if b.get("action") == "merge":
                     if recs[1]["review"].get("state") not in ("approved", "pending"):
                         return self.fail(400, "That copy is already out of the list.")

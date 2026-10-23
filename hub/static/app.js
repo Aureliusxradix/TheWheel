@@ -476,7 +476,7 @@ function eventRow(ev, i = 0) {
   const status = ev.status && ev.status !== "confirmed"
     ? `<span class="state flag">${esc(ev.status)}</span>`
     : ev.reopened && unreviewed ? `<span class="state flag" title="Members reported it, so reviewers are checking it again">reported · checking again</span>`
-    : unreviewed ? `<span class="state" title="${c.reviews || 0} review(s) so far">waiting${c.reviews ? ` · ${pct(c.for)}` : ""}</span>`
+    : unreviewed ? `<span class="state" title="${c.reviews || 0} review(s) so far">waiting</span>`
       : `<span class="state ok" title="How sure the reviewers are, weighted by their rep">√ checked · ${pct(c.for)}</span>`;
   const fest = isFestival(ev), fr = fest ? dayRange(ev) : null;
   const banner = fest && ev.source?.flyer && /^[0-9a-f]{16}\.webp$/.test(ev.source.flyer)
@@ -833,7 +833,9 @@ function reviewCard(ev) {
   const src = ev.source?.url;
   const c = ev.certainty || { for: 0, against: 0, reviews: 0 };
   const pct = (x) => `${Math.round(x * 100)}%`;
-  const sure = c.reviews ? `${c.reviews} review${c.reviews > 1 ? "s" : ""}: ${pct(c.for)} sure it's right, ${pct(c.against)} sure it's wrong. It settles at 70%.` : "No reviews yet.";
+  const sure = c.for === undefined  // the score shows after your answer, so each review is your own read of the source
+    ? `${c.reviews ? `${c.reviews} review${c.reviews > 1 ? "s" : ""} so far.` : "Be the first to review it."} The score shows once you've answered.`
+    : c.reviews ? `${c.reviews} review${c.reviews > 1 ? "s" : ""}: ${pct(c.for)} sure it's right, ${pct(c.against)} sure it's wrong. It settles at 70%.` : "Be the first to review it.";
   const notes = ev.extraction?.confidence_notes || "";
   const canFix = reviewMe && reviewMe.tier >= 2;
   const canSuggest = reviewMe && !canFix;  // below Reviewer: a fix goes in as a suggestion (his ruling 2026-10-21)
@@ -930,6 +932,7 @@ async function review(card, action) {
     } else if (action !== "save") {
       const ev = reviewQueue.find((e) => e.id === card.dataset.id);
       if (ev) ev.my_verdict = action;  // moves to "You've checked these"
+      if (ev && res.event?.certainty) ev.certainty = res.event.certainty;  // answered: the score shows now
       if (res.event?.review?.state !== "pending") reviewQueue = reviewQueue.filter((e) => e.id !== card.dataset.id);  // settled: out of the queue
       const row = card.closest(".ev");
       if (row) { card.remove(); loadEvents(); } else renderReview();

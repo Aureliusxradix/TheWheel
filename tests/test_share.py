@@ -143,6 +143,14 @@ class Served(unittest.TestCase):
         code, _, body = self.get("/api/fund")
         self.assertEqual((code, json.loads(body)), (200, {"raised": 0, "gifts": 0, "goal": 10000.0, "steps": [3000, 6000, 10000]}))
 
+    def test_waiting_listings_show_no_running_score(self):
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/events?unreviewed=1", timeout=10) as r:
+            ev = {e["id"]: e for e in json.load(r)["events"]}
+        self.assertEqual(set(ev[WAITING["id"]]["certainty"]), {"reviews"})  # waiting: a count only
+        self.assertIn("for", ev[NIGHT["id"]]["certainty"])  # checked: the score shows
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/review", timeout=10) as r:
+            self.assertTrue(all(set(e["certainty"]) == {"reviews"} for e in json.load(r)["events"]))
+
     def test_the_list_says_when_it_was_made(self):
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/events", timeout=10) as r:
             self.assertIn("at", json.load(r))

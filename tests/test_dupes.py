@@ -51,6 +51,11 @@ class Dupes(unittest.TestCase):
         self.assertEqual(rep.points(self.db, "f" * 16), 0)  # a merged copy costs its adder nothing
         self.assertFalse(any(B["id"] in {x["id"] for x in p["listings"]} for p in server.duplicate_pairs()))
 
+    def test_only_offered_pairs_can_be_merged(self):
+        self.assertTrue(server.offered_pair(B["id"], A["id"]))  # a copy on the same day
+        self.assertFalse(server.offered_pair(A["id"], E["id"]))  # same name, another day: two events, never a merge
+        self.assertFalse(server.offered_pair(A["id"], "9" * 16))
+
     def test_kept_apart_stays_apart(self):
         store.keep_dups_apart(self.db, C["id"], A["id"], "2099-10-01")
         self.assertFalse(any({x["id"] for x in p["listings"]} == {A["id"], C["id"]} for p in server.duplicate_pairs()))
