@@ -1840,6 +1840,6 @@ route();
   const q = new URLSearchParams(location.search);
   let seen = null;
   try { seen = localStorage.getItem("wheel.guided"); } catch {}
-  if (q.has("guide") || (!seen && !q.has("shot") && !location.hash.startsWith("#l/"))) openGuide();  // a shared link opens its listing
+  if (q.has("guide") || (!seen && !q.has("shot") && !/^#(l\/|org$)/.test(location.hash))) openGuide();  // a shared link opens its listing; an organiser link opens For organisers
 })();
 refreshCount();
