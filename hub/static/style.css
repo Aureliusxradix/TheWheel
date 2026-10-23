@@ -660,3 +660,12 @@ html[data-ui="simple"] .ev.festival:not(:has(.ev-name[aria-expanded="true"])) .c
 .brand .tagline { display: block; font-size: .68rem; letter-spacing: .06em; text-transform: none; color: var(--dim); margin: .15rem 0 0 1.6em; }
 .brand .tagline { contain: inline-size; white-space: normal; line-height: 1.3; }  /* never wider than the name above it */
 @media (max-width: 640px) { .brand .tagline { margin-left: 0; font-size: .64rem; } }
+
+/* the Menu's group headings (his note 2026-10-23: "hardly visible and smaller text than their items"): larger than
+   their items, bold, in the look's accent, with a short rule; the items sit indented under them */
+.top .menu-panel .menu-h { font-size: 1.08rem; font-weight: 700; letter-spacing: .02em; text-transform: none; color: var(--accent);
+  margin: 0 0 .25rem; padding-bottom: .3rem; border-bottom: 2px solid var(--accent); max-width: 12rem; }
+[data-look="day"] .top .menu-panel .menu-h { color: #17191A; border-color: #17191A; }
+[data-look="recovery"] .top .menu-panel .menu-h { color: #FFFFFF; border-color: rgba(255,255,255,.7); }
+.top .menu-panel .menu-group a { padding-left: .6rem; font-size: .98rem; }
+.top .menu-panel .menu-group { gap: 0; }
