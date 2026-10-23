@@ -92,6 +92,10 @@ def connect() -> sqlite3.Connection:
     for col in ("deposited_account TEXT", "deposit_day TEXT"):  # pen names, day only: no clock times
         if col.split()[0] not in cols:
             db.execute(f"ALTER TABLE events ADD COLUMN {col}")
+    ask_cols = {r["name"] for r in db.execute("PRAGMA table_info(asks)")}
+    for col in ("listing_id TEXT", "dir TEXT", "seats INTEGER"):  # a ride for a night is an ask tied to a listing (2026-10-24)
+        if col.split()[0] not in ask_cols:
+            db.execute(f"ALTER TABLE asks ADD COLUMN {col}")
     if "practice" not in {r["name"] for r in db.execute("PRAGMA table_info(organisers)")}:
         db.execute("ALTER TABLE organisers ADD COLUMN practice TEXT")  # a practitioner's profile (2026-10-24), fields with audiences
     if "granted_tier" not in {r["name"] for r in db.execute("PRAGMA table_info(accounts)")}:

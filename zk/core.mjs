@@ -45,6 +45,11 @@ export const ACCOUNT_SCOPE = toField("wheel-account")
 // each, and a vouch's nullifier differs from the member's pen name and from every show-up.
 export const vouchScope = (pid) => toField(`wheel-vouch:${pid}`)
 export const VOUCH_MESSAGE = toField("wheel-vouch")
+// Going (Night, his calls 2026-10-24): an anonymous count per listing. Scoped per listing, so one member counts once;
+// the same member's proof with the "undo" message takes it back (the nullifier matches, and still names nobody).
+export const goingScope = (eventId) => toField(`wheel-going:${eventId}`)
+export const GOING_MESSAGE = toField("wheel-going")
+export const UNGOING_MESSAGE = toField("wheel-going-undo")
 export const accountId = (nullifier) => sha256hex(`wheel-pen:${nullifier}`).slice(0, 16)
 export const NONCE_TTL_MS = 5 * 60 * 1000
 export const SESSION_TTL_MS = 12 * 60 * 60 * 1000
@@ -59,6 +64,7 @@ export class Wheel {
     this.checkins = this.#load("checkins.json", {})
     this.showups = this.#load("showups.json", {})
     this.vouches = this.#load("vouches.json", {})
+    this.goings = this.#load("goings.json", {})
   }
   #load(name, empty) {
     try { return JSON.parse(fs.readFileSync(path.join(this.dir, name), "utf8")) } catch { return empty }
@@ -191,6 +197,31 @@ export class Wheel {
     seen.push(nullifier)
     this.#save("vouches.json", this.vouches)
     return { ok: true, count: seen.length }
+  }
+
+  async going(eventId, proof) {
+    const id = String(eventId ?? "")
+    if (!/^[0-9a-f]{16}$/.test(id)) return { ok: false, why: "event" }
+    if (!proof || typeof proof !== "object") return { ok: false, why: "proof" }
+    if (String(proof.scope) !== goingScope(id)) return { ok: false, why: "scope" }
+    const undo = String(proof.message) === UNGOING_MESSAGE
+    if (!undo && String(proof.message) !== GOING_MESSAGE) return { ok: false, why: "message" }
+    if (!this.roots.includes(String(proof.merkleTreeRoot))) return { ok: false, why: "root" }
+    const seen = (this.goings[id] ||= [])
+    const nullifier = String(proof.nullifier)
+    if (!undo && seen.includes(nullifier)) return { ok: false, why: "again", count: seen.length }
+    if (undo && !seen.includes(nullifier)) return { ok: true, count: seen.length }
+    let valid = false
+    try { valid = await verifyProof(proof) } catch { valid = false }
+    if (!valid) return { ok: false, why: "proof" }
+    if (undo) seen.splice(seen.indexOf(nullifier), 1)
+    else seen.push(nullifier)
+    this.#save("goings.json", this.goings)
+    return { ok: true, count: seen.length }
+  }
+
+  goingCounts(ids) {
+    return Object.fromEntries(ids.filter((i) => /^[0-9a-f]{16}$/.test(i)).map((i) => [i, (this.goings[i] || []).length]))
   }
 
   vouchCounts(ids) {

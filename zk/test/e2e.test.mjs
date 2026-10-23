@@ -155,3 +155,21 @@ test("vouches: one per member per practitioner, nothing else accepted", async (t
   const kept = fs.readFileSync(path.join(dir, "vouches.json"), "utf8")
   assert.ok(!kept.includes(a.commitment.toString()), "the store keeps nullifiers, never who")
 })
+
+test("going: counted once per member, taken back by the same member", async (t) => {
+  t.after(async () => { await globalThis.curve_bn128?.terminate?.() })
+  const { goingScope, GOING_MESSAGE, UNGOING_MESSAGE } = await import("../core.mjs")
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wheel-g-"))
+  const w = new Wheel(dir)
+  const [a, b] = ["ga", "gb"].map((s) => new Identity(`secret-${s}`))
+  for (const id of [a, b]) w.join(id.commitment.toString())
+  const members = w.group().members
+  const E = "cccccccccccccccc"
+  assert.deepEqual(await w.going(E, await prove(a, members, GOING_MESSAGE, goingScope(E))), { ok: true, count: 1 })
+  assert.equal((await w.going(E, await prove(a, members, GOING_MESSAGE, goingScope(E)))).why, "again")
+  assert.equal((await w.going(E, await prove(b, members, GOING_MESSAGE, goingScope(E)))).count, 2)
+  assert.equal((await w.going(E, await prove(b, members, UNGOING_MESSAGE, goingScope(E)))).count, 1, "b takes it back")
+  assert.equal((await w.going(E, await prove(b, members, UNGOING_MESSAGE, goingScope(E)))).count, 1, "taking back twice changes nothing")
+  assert.equal((await w.going(E, await prove(a, members, "7", goingScope(E)))).why, "message")
+  assert.deepEqual(w.goingCounts([E]), { [E]: 1 })
+})

@@ -759,3 +759,16 @@ ul.swap, ul.swap-mine { list-style: none; padding: 0; display: grid; gap: .5rem;
   .shifts td, [data-look="day"] .shifts td { border: 0; padding: .1rem 0; }
   .shifts td:first-child { font-weight: 700; }
 }
+
+/* Night's own, round four (2026-10-24): set times, Going, the way home, rides */
+.sets-now { display: flex; flex-wrap: wrap; gap: .1rem 1rem; font-size: .9rem; }
+.going-row { display: flex; flex-wrap: wrap; gap: .3rem .9rem; align-items: center; margin: .2rem 0; }
+button.going { font: inherit; font-size: .85rem; font-weight: 700; padding: .3rem .9rem; border-radius: 999px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; min-height: 40px; }
+button.going.on { background: var(--accent); color: var(--ground); }
+.home-line { font-size: .88rem; }
+.sets ul, .home ul { margin: .2rem 0 .5rem; padding-left: 1.1rem; }
+.sets .t { font-variant-numeric: tabular-nums; font-weight: 700; margin-right: .4rem; }
+.rides-box { margin: .5rem 0; }
+.ride-add .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; }
+.ride-add .fields > div { min-width: 0; }
+.ride-add select, .ride-add input { width: 100%; min-width: 0; box-sizing: border-box; }

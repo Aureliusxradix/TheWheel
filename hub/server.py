@@ -36,7 +36,7 @@ from urllib.parse import parse_qs, urlsplit
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from hub import chats, day as daymode, flyer, gate, kinds, organisers, recovery, repeats, rep, share, store, support, tickets  # noqa: E402
+from hub import chats, day as daymode, flyer, gate, kinds, organisers, recovery, repeats, rep, share, store, support, tickets, transit  # noqa: E402
 from reader import core  # noqa: E402
 
 STATIC = ROOT / "hub" / "static"
@@ -53,7 +53,7 @@ EDITABLE = {"name", "summary", "description", "start_date", "start_time", "end_d
             "status", "location_name", "location_address", "location_locality", "price", "website",
             "tickets_url", "tags", "organiser", "online", "modes", "listing_kind", "slots", "requirements",
             "chat_platform", "chat_link", "chat_link_ok", "chat_text", "festival",
-            "doors", "last_entry", "solo_meet", "care", "retreat"}  # each mode's own (his calls 2026-10-24)
+            "doors", "last_entry", "solo_meet", "care", "retreat", "sets"}  # each mode's own (his calls 2026-10-24)
 # What a place or night offers (his "I like the rest", 2026-10-24): Night shows them as care chips, Recovery matches a
 # member's needs against them on the member's own device. Keys only; the page holds the words.
 CARE = ("quiet", "water", "sober", "checking", "stepfree", "toilets", "lowsensory", "trauma", "women")
@@ -64,7 +64,7 @@ MAX_BODY = 12 * 1024 * 1024
 ZK = os.environ.get("WHEEL_ZK_URL", "http://127.0.0.1:8792")  # zk/server.mjs, the member service (zk/run.sh)
 SELFTEST = os.environ.get("WHEEL_SELFTEST") == "1"  # serves tests/browser/selftest.html, test runs only
 ZK_PUBLIC = {("GET", "/group"), ("GET", "/count"), ("POST", "/join"), ("POST", "/showup"), ("POST", "/challenge"), ("POST", "/login"),
-             ("POST", "/vouch")}
+             ("POST", "/vouch"), ("POST", "/going")}
 JOIN_FIRST = "Join The Wheel first, on the Me page. It takes one tap."
 API_ONLY = os.environ.get("WHEEL_API_ONLY") == "1"
 ORIGINS = {o.strip() for o in os.environ.get("WHEEL_ORIGINS", "").split(",") if o.strip()}
@@ -73,7 +73,7 @@ FUND_STEPS = [3000, 6000, 10000]  # his "4 steps" 2026-10-23: the bench test at 
 FUND_GOAL = float(os.environ.get("WHEEL_FUND_GOAL", "10000"))  # NZ$ toward The Wheel's own AI (his figure 2026-10-23, "say some 10knzd")  # a share link opens the listing here, at #l/<id>
 ORG_FIELDS = ("start_date", "start_time", "end_date", "end_time", "location_name", "location_address", "location_locality",
               "price", "website", "tickets_url", "description", "status", "recurrence",
-              "doors", "last_entry", "solo_meet", "care", "retreat")  # what a proven organiser keeps right
+              "doors", "last_entry", "solo_meet", "care", "retreat", "sets")  # what a proven organiser keeps right
 STATUSES = ("confirmed", "tentative", "postponed", "cancelled")
 REPORT_REASONS = {"wrong": "The details are wrong", "over": "Cancelled, moved or over", "unsafe": "Unsafe or harmful"}
 PRIVATE_FIELDS = ("deposited_by", "deposited_account", "deposit_day")  # who added a listing never leaves the server
@@ -247,6 +247,8 @@ def clean(rec: dict, edits: dict) -> dict:
             v = [c for c in CARE if c in (v if isinstance(v, list) else str(v or "").split(","))] or None
         elif k == "retreat":
             v = clean_retreat(v)
+        elif k == "sets":
+            v = clean_sets(v)
         elif k == "solo_meet":
             v = chats.scrub(re.sub(r"\s+", " ", str(v or ""))).strip()[:160] or None
         elif k == "slots":
@@ -302,6 +304,25 @@ def clean_retreat(v) -> dict | None:
     asks = [a for a in RETREAT_ASKS if a in (v.get("asks") or [])]
     out = {"asks": asks, "intake": intake, **{k: line(v.get(k), 300) or None for k in ("sleep", "food", "bring")}}
     return out if any(out.values()) else None
+
+
+def clean_sets(v) -> list | None:
+    """Set times (Night's lineup, 2026-10-24): an act, its start and end, a stage, and a date for a festival's days."""
+    out = []
+    for x in (v if isinstance(v, list) else [])[:80]:
+        if not isinstance(x, dict):
+            continue
+        act = re.sub(r"\s+", " ", str(x.get("act") or "")).strip()[:80]
+        start, end = str(x.get("start") or "").strip(), str(x.get("end") or "").strip() or None
+        day = str(x.get("date") or "").strip() or None
+        if not act:
+            continue
+        if not re.fullmatch(r"[0-2]\d:[0-5]\d", start) or (end and not re.fullmatch(r"[0-2]\d:[0-5]\d", end)):
+            raise ValueError(f"Set times look like 21:00 or 21:00-22:00 ({act}).")
+        if day and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+            raise ValueError(f"A set's date looks like 2026-10-24 ({act}).")
+        out.append({"act": act, "start": start, "end": end, "date": day, "stage": re.sub(r"\s+", " ", str(x.get("stage") or "")).strip()[:40] or None})
+    return sorted(out, key=lambda x: (x["date"] or "", x["start"])) or None
 
 
 def looks_like_festival(rec: dict) -> bool:
@@ -526,6 +547,33 @@ def practitioners(member: bool) -> list[dict]:
     return sorted(out, key=lambda x: (-x["vouches"], x["name"].lower()))
 
 
+_going = {"at": 0.0, "counts": {}}
+
+
+def going_counts(ids: list[str]) -> dict:
+    """Anonymous Going counts from the member service, cached a minute (one call per list, never per card)."""
+    if time.time() - _going["at"] > 60 or not set(ids) <= set(_going["counts"]):
+        code, data = zk_call("GET", "/goings", "ids=" + ",".join(ids[:300]))
+        try:
+            _going.update(at=time.time(), counts=json.loads(data).get("counts", {}) if code == 200 else {})
+        except ValueError:
+            _going.update(at=time.time(), counts={})
+    return _going["counts"]
+
+
+TIMETABLE = None  # set in main(): the weekly timetable index for the way home
+_home: dict[tuple, list] = {}
+
+
+def way_home(r: dict, day: str) -> list | None:
+    if TIMETABLE is None:
+        return None
+    key = (r["id"], day, r.get("end_time"), r.get("last_entry"), r.get("latitude"), TIMETABLE.index and TIMETABLE.index.get("built"))
+    if key not in _home:
+        _home[key] = TIMETABLE.rides(r, day)
+    return _home[key]
+
+
 def proven_organisers() -> list[dict]:
     held = claimed_map()
     places = {r["id"] for r in db().execute("SELECT id FROM places")}  # a held place counts apart from listings
@@ -567,6 +615,7 @@ def listing(params: dict, member: bool = False) -> dict:
     out = []
     merged = store.merges(db())
     held = claimed_map()
+    night_ids: list[str] = []
     for r in collapse_copies(store.events(db(), states)):
         if withheld(public(r)):
             continue
@@ -580,10 +629,23 @@ def listing(params: dict, member: bool = False) -> dict:
         r["areas"] = store.areas_for(r, all_areas)
         if r.get("slots"):
             r["slot_fill"] = daymode.fill(db(), r)  # how many took each slot; who stays with the organiser
+        if "night" in (r.get("modes") or []) and not r.get("past"):
+            night_ids.append(r["id"])
+            shown_day = r.get("next_date") or r.get("start_date")
+            if shown_day and today <= shown_day <= (datetime.now(TZ).date() + timedelta(days=14)).isoformat():
+                home = way_home(r, shown_day)
+                if home:
+                    r["home"] = home
         r["certainty"] = settle(dict(r))["certainty"]
         if r["review"].get("state") != "approved":  # a waiting listing shows how many reviews, never the running score
             r["certainty"] = {"reviews": r["certainty"]["reviews"]}
         out.append(for_viewer(r, member))
+    counts, rides = going_counts(night_ids), daymode.ride_counts(db())
+    for r in out:
+        if r["id"] in night_ids:
+            r["going"] = counts.get(r["id"], 0)
+            if r["id"] in rides:
+                r["rides"] = rides[r["id"]]
     tags: dict[str, int] = {}
     for r in out:
         for t in r.get("tags", []):
@@ -1014,6 +1076,11 @@ class Handler(BaseHTTPRequestHandler):
             if a is None:
                 return self.fail(404, "That ask has gone.")
             return self.send(200, {"threads": daymode.threads(db(), dict(a), acct), "mine": a["account"] == acct})
+        m = re.fullmatch(r"/api/rides/([0-9a-f]{16})", u.path)
+        if m:  # the ride board for one night: offers and needs, answered in threads between the two sides
+            viewer = self.account() if self.headers.get("Authorization") else None
+            return self.send(200, {"rides": [x for x in daymode.rides_for(db(), m.group(1), viewer) if not gate.hit(GATE, x["text"] + " " + (x["area"] or ""))],
+                                   "member": bool(viewer)})
         if u.path == "/api/swap":  # the skillshare swap: counts per topic
             return self.send(200, {"topics": [x for x in daymode.swap_board(db()) if not gate.hit(GATE, x["topic"])], "workshop_at": daymode.WORKSHOP_AT})
         if u.path == "/api/org/crew":  # the organiser's standing crew: pen names
@@ -1476,6 +1543,26 @@ class Handler(BaseHTTPRequestHandler):
                 except LookupError as exc:
                     return self.fail(404, str(exc))
                 return self.send(200, {"threads": daymode.threads(db(), dict(a), acct)})
+            m = re.fullmatch(r"/api/rides/([0-9a-f]{16})", u.path)
+            if m:  # a member offers a ride to or from a night, or asks for one
+                acct, t = self.need(0)
+                if acct is None:
+                    return
+                rec = shown_listing(m.group(1))
+                if rec is None or rec.get("past"):
+                    return self.fail(404, "That listing has gone, or has already happened.")
+                today = datetime.now(TZ).date().isoformat()
+                rd = daymode.clean_ride(b)
+                if gate.hit(GATE, rd["text"] + " " + (rd["area"] or "")):
+                    return self.fail(400, HELD)
+                if store.count_deposit(db(), "ask:" + acct, today) > daymode.ASKS_A_DAY:
+                    return self.fail(429, "That's three asks and rides today. More tomorrow.")
+                rid = secrets.token_hex(8)
+                db().execute("INSERT INTO asks(id, account, kind, text, area, by_day, day, listing_id, dir, seats) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                             (rid, acct, rd["kind"], rd["text"], rd["area"], rec.get("end_date") or rec.get("next_date") or rec["start_date"], today,
+                              rec["id"], rd["dir"], rd["seats"]))
+                db().commit()
+                return self.send(200, {"rides": daymode.rides_for(db(), rec["id"], acct)})
             if u.path == "/api/swap":  # a member's skillshare line: can teach or wants to learn
                 acct, t = self.need(0)
                 if acct is None:
@@ -1778,6 +1865,18 @@ def main():
         GATE = gate.load()
     except gate.GateMissing as exc:
         sys.exit(f"The Wheel will not start: {exc}.")
+    global TIMETABLE
+    TIMETABLE = transit.Timetable(Path(store.DB).parent / "transit")
+
+    def keep_timetable():  # weekly, in the background: a request never waits on it
+        while True:
+            if TIMETABLE.stale() and os.environ.get("WHEEL_TRANSIT", "1") == "1":
+                try:
+                    TIMETABLE.refresh()
+                except Exception as exc:
+                    sys.stderr.write(f"timetable refresh failed: {exc!r}\n")
+            time.sleep(6 * 3600)
+    threading.Thread(target=keep_timetable, daemon=True).start()
     srv = ThreadingHTTPServer((os.environ.get("WHEEL_HOST", "127.0.0.1"), a.port), Handler)
     print(f"The Wheel on http://localhost:{a.port}/{'  (API only)' if API_ONLY else ''}  (Ctrl+C stops it)", flush=True)
     try:

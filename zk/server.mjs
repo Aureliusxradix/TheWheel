@@ -5,6 +5,8 @@
 //   GET  /count?event=<id>         -> {count}
 //   POST /vouch    {practitioner, proof} -> {ok, count} | {ok:false, why}   one per member per practitioner
 //   GET  /vouches?ids=a,b          -> {counts: {a: n}}
+//   POST /going    {event, proof}  -> {ok, count}   message "going" counts once per member, "undo" takes it back
+//   GET  /goings?ids=a,b           -> {counts: {a: n}}
 //   POST /challenge                -> {nonce}                 single use, 5 minutes
 //   POST /login    {proof}         -> {ok, token, account}    proof scoped "wheel-account", message = the nonce
 //   GET  /session?token=           -> {ok, account}           hub only (X-Wheel-Admin)
@@ -51,6 +53,12 @@ const server = http.createServer(async (req, res) => {
       return send(res, r.ok ? 200 : 400, r)
     }
     if (req.method === "GET" && u.pathname === "/vouches") return send(res, 200, { counts: wheel.vouchCounts(String(u.searchParams.get("ids") || "").split(",").slice(0, 200)) })
+    if (req.method === "GET" && u.pathname === "/goings") return send(res, 200, { counts: wheel.goingCounts(String(u.searchParams.get("ids") || "").split(",").slice(0, 300)) })
+    if (req.method === "POST" && u.pathname === "/going") {
+      const b = await body(req)
+      const r = await wheel.going(b.event, b.proof)
+      return send(res, r.ok ? 200 : r.why === "again" ? 409 : 400, r)
+    }
     if (req.method === "POST" && u.pathname === "/vouch") {
       const b = await body(req)
       const r = await wheel.vouch(b.practitioner, b.proof)

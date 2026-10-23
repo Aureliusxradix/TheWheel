@@ -125,3 +125,5 @@ class ThroughTheServer(unittest.TestCase):
         self.assertEqual(post("/api/asks", {"kind": "lift", "text": "A lift to the beach clean please", "by": SOON})[0], 200)
         self.assertEqual(post("/api/swap", {"topic": "Sourdough", "side": "learn", "on": True})[0], 200)
         self.assertEqual(post("/api/places", {"name": "Harbour Sauna", "locality": "Devonport"})[0], 200)
+        code, got = post(f"/api/rides/{CALL['id']}", {"kind": "offer", "dir": "to", "seats": 2, "area": "Orewa"})
+        self.assertEqual((code, got["rides"][0]["mine"]), (200, True))

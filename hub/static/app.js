@@ -529,6 +529,7 @@ function eventRow(ev, i = 0) {
       <button type="button" class="ev-name" aria-expanded="false" data-open="${ev.id}">${esc(ev.name)}</button>
       <div class="meta"><span>${esc(when(ev))}</span>${where ? `<span>${esc(where)}</span>` : ""}${ev.price ? `<span>${esc(ev.price)}</span>` : ""}</div>
       ${nightLines(ev)}
+      ${nightFace(ev)}
       ${ev.past ? "" : ticketBadge(ev)}
       ${ev.past || !ev.xmr_tickets ? "" : ev.xmr_tickets.left > 0
         ? `<div class="xmr-buy"><button type="button" class="ticket-badge xmr" data-xmrbuy="${ev.id}" aria-expanded="false">Pay in Monero, NZ$${esc(fmtNzd(ev.xmr_tickets.nzd))}</button><div class="xmr-tix" hidden></div></div>`
@@ -546,6 +547,7 @@ function eventRow(ev, i = 0) {
         ${fest ? festivalDetails(ev) : ""}
         ${retreatDetails(ev)}
         ${crewLine(ev)}
+        ${nightOpen(ev)}
         ${nightMore(ev)}
         ${ev.claimed_by ? `<div>Kept up to date by <a href="#o/${esc(ev.claimed_by.id)}">${esc(ev.claimed_by.name)}</a>, a proven organiser</div>`
           : ev.organiser ? `<div>Organised by ${esc(ev.organiser)}</div>` : ""}
@@ -823,6 +825,7 @@ function readEditor(card) {
   } else out.festival = null;
   out.care = $$("[data-care]", card).filter((c) => c.checked).map((c) => c.dataset.care);
   out.retreat = readRetreat(card);
+  out.sets = parseSets($("[data-sets]", card)?.value || "");
   return out;
 }
 
@@ -1092,7 +1095,7 @@ async function saveArea(e) {
 const GUIDE = [  // the short guide, rewritten 2026-10-23 for the one header, the switch and the Menu
   ["Welcome to The Wheel", `<p>Community events gathered in one place, starting in Auckland and open to anywhere. People add what they find, and other people check it. Each listing links to its organiser when there is a page.</p>`],
   ["Three ways in", `<p><b>Day</b>: workshops, skillshares and volunteer shifts. <b>Night</b>: gigs, socials and evening gatherings. <b>Recovery</b>: retreats, sound baths, breathwork and rest.</p><p>Tap one of the three tabs at the top; each has its own look. Tap a listing to open everything about it: share it, add it to your calendar, or report a problem.</p>`],
-  ["Each mode its own", `<p><b>Day</b> has buttons under its title for <b>Asks</b> (a lift, a hand, something to borrow) and <b>Skillshare</b>; open a call for helpers to take a shift under your pen name. <b>Night</b> shows doors, last entry, care on the night and where to meet when you come solo. <b>Recovery</b> has <b>Places</b> (saunas and hot pools, open now) and <b>Practitioners</b> you can contact.</p><p>Under Filters, Day matches shifts to your skills and Recovery to your needs. Both stay on your device.</p>`],
+  ["Each mode its own", `<p><b>Day</b> has buttons under its title for <b>Asks</b> (a lift, a hand, something to borrow) and <b>Skillshare</b>; open a call for helpers to take a shift under your pen name. <b>Night</b> shows doors, last entry, set times, care on the night, where to meet when you come solo, and the last ride home. Tap <b>Going?</b> to be counted, unnamed, and open a card for rides to and from the night. <b>Recovery</b> has <b>Places</b> (saunas and hot pools, open now) and <b>Practitioners</b> you can contact.</p><p>Under Filters, Day matches shifts to your skills and Recovery to your needs. Both stay on your device.</p>`],
   ["Simple, or everything at once", `<p>The switch beside the name moves between two views. <b>Simple</b> shows the list first, with filters behind one button. <b>Everything at once</b> puts every filter and tool on the screen.</p><p>The <b>Menu</b> holds the rest: Communities, Review, For organisers, reading settings (Aa) and how it all works.</p>`],
   ["Add what you find", `<p>Tap <b>+ Add a listing</b>, then paste a post or a link, or drop in a flyer. The Wheel reads it and fills in the listing. You check it and send it for review.</p><p>Members check each listing before it shows as checked. Their reviews count by their <a href="#rep">rep</a>.</p>`],
   ["Your place, on your device", `<p>On <b>Me</b>, one tap makes you a key and a pen name. The key is the whole sign-up, and it stays on your device. Copy it somewhere safe, like a password manager, to sign in anywhere as the same pen name.</p><p>Run something? <a href="#org">For organisers</a> has an account of its own. What's coming next is on the <a href="#roadmap">Roadmap</a>.</p>`],
@@ -1638,6 +1641,7 @@ function orgClaimCard(c) {
       <div class="fields">${ORG_EDIT.map(([k, label]) => `<div><label for="of-${c.id}-${k}">${label}</label><input id="of-${c.id}-${k}" data-of="${k}" value="${esc(l[k] ?? "")}"></div>`).join("")}</div>
       ${careBoxes(l.care || [], `oc-${c.id}`)}
       ${retreatEditor(l, `or-${c.id}`, !!l.retreat)}
+      <label for="os-${c.id}">Set times, one per line: 21:00-22:15 | Act | Stage</label><textarea id="os-${c.id}" data-sets="1" rows="3">${esc(setsText(l.sets))}</textarea>
       <label for="on-${c.id}">An update for everyone (moved, sold out, bring a plate…)</label><textarea id="on-${c.id}" data-of="note" rows="2" maxlength="280">${esc(l.org_note?.text || "")}</textarea>
       <button type="button" class="quiet" data-orgsave="${c.id}">Save the update</button><p class="status" role="status"></p></div></div>`;
 }
@@ -1720,6 +1724,7 @@ async function orgSave(btn) {
   $$("[data-of]", box).forEach((el) => (body[el.dataset.of] = el.value));
   body.care = $$("[data-care]", box).filter((c) => c.checked).map((c) => c.dataset.care);
   body.retreat = readRetreat(box);
+  body.sets = parseSets($("[data-sets]", box)?.value || "");
   try { const r = await orgApi(`/api/org/update/${btn.dataset.orgsave}`, body); out.textContent = r.changed.length ? "Saved. It shows on the listing now." : "Already up to date."; }
   catch (e) { out.textContent = e.message; }
 }
@@ -2086,6 +2091,8 @@ function modeExtrasEditor(ev, prefix) {
         <div class="wide"><label for="${prefix}-solo">Coming solo: where and when to meet</label><input id="${prefix}-solo" data-k="solo_meet" value="${esc(ev.solo_meet || "")}" placeholder="By the front bar at 20:30, look for the yellow flag"></div>
       </div>
       ${careBoxes(ev.care || [], `${prefix}-care`)}
+      <label for="${prefix}-sets">Set times, one per line: 21:00-22:15 | Act | Stage (a festival puts the date first: 2026-11-01 21:00 | Act)</label>
+      <textarea id="${prefix}-sets" data-sets="1" rows="3">${esc(setsText(ev.sets))}</textarea>
     </details>
     ${retreatEditor(ev, prefix, ev.retreat || modes.includes("recovery"))}`;
 }
@@ -2555,7 +2562,10 @@ document.addEventListener("click", (e) => {
   if (t.dataset.orgwho) orgWho(t);
   if (t.dataset.thank) thankAct(t);
   if (t.dataset.askthreads) { const box = $(".ask-threads", t.closest(".ask")); if (!box.hidden) { box.hidden = true; } else if (!member()) toast("Answering needs a member's key. Join on Me first."); else askThreads(t.dataset.askthreads, box); }
-  if (t.dataset.askclose) api(`/api/asks/${t.dataset.askclose}`, { action: "close" }).then(() => { toast("Closed"); renderRecSeg(); }).catch((err) => toast(err.message));
+  if (t.dataset.askclose) {
+    const ridesBox = t.closest(".rides");  // a ride closes inside its night's board
+    api(`/api/asks/${t.dataset.askclose}`, { action: "close" }).then(() => { toast("Closed"); if (ridesBox) ridesView($("[data-rides]", ridesBox.parentElement).dataset.rides, ridesBox); else renderRecSeg(); }).catch((err) => toast(err.message));
+  }
   if (t.dataset.asksend) {
     const box = t.closest(".ask-threads"), input = $("input", t.parentElement);
     api(`/api/asks/${t.dataset.asksend}`, { text: input.value, to: t.dataset.to || null }).then(() => askThreads(t.dataset.asksend, box)).catch((err) => toast(err.message));
@@ -2570,5 +2580,100 @@ document.addEventListener("click", (e) => {
   if (t.dataset.swapdrop) swapAct(t.dataset.swapdrop, t.dataset.side, false);
   if (t.dataset.swapadd) { const v = $("#swap-topic").value.trim(); if (v) swapAct(v, t.dataset.swapadd, true); }
   if (t.dataset.draftws) { state.draftWorkshop = t.dataset.draftws; }
+});
+
+/* ---------- Night's own, round four (his calls 2026-10-24): set times, Going, the way home ----------
+   Going is a member proof, counted once and taken back by the same member. The last ride home comes
+   from Auckland Transport's published timetable, refreshed weekly on the hub. Rides for a night are asks tied to the
+   listing, answered in threads between the two sides. Who is going stays with each member. */
+function parseSets(text) {
+  return text.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
+    const [when, act, stage] = l.split("|").map((x) => x.trim());
+    const m = (when || "").match(/^(?:(\d{4}-\d{2}-\d{2})\s+)?(\d{1,2}:\d{2})(?:\s*[-–]\s*(\d{1,2}:\d{2}))?$/);
+    const pad = (t) => (t && t.length === 4 ? "0" + t : t);
+    return m ? { date: m[1] || null, start: pad(m[2]), end: pad(m[3]) || null, act: act || "", stage: stage || null } : { start: when, act: act || when };
+  });
+}
+function setsText(sets) {
+  return (sets || []).map((x) => `${x.date ? x.date + " " : ""}${x.start}${x.end ? "-" + x.end : ""} | ${x.act}${x.stage ? " | " + x.stage : ""}`).join("\n");
+}
+
+// what is on now and next, during the night itself
+function setsNow(ev) {
+  const sets = (ev.sets || []).filter((x) => !x.date || x.date === state.today);
+  if (!sets.length || on(ev) > state.today || onEnd(ev) < state.today) return "";
+  const now = new Date(), n = now.getHours() * 60 + now.getMinutes();
+  const m = (t) => { const v = mins(t); return v < 360 ? v + 1440 : v; };  // a set after midnight belongs to the same night
+  const nowM = n < 360 ? n + 1440 : n;
+  const cur = sets.find((x, i) => m(x.start) <= nowM && nowM < (x.end ? m(x.end) : sets[i + 1] ? m(sets[i + 1].start) : m(x.start) + 60));
+  const next = sets.find((x) => m(x.start) > nowM);
+  if (!cur && !next) return "";
+  return `<div class="sets-now">${cur ? `<span><b>On now:</b> ${esc(cur.act)}${cur.stage ? ` (${esc(cur.stage)})` : ""}</span>` : ""}${next ? `<span><b>${cur ? "Next" : "First up"}:</b> ${esc(next.act)} at ${esc(next.start)}</span>` : ""}</div>`;
+}
+
+const goingMine = () => (window.createWheel && W?.goings ? W.goings() : []);
+function nightFace(ev) {
+  if (!(state.mode === "night" || allModes()) || ev.past) return "";
+  const mine = goingMine().includes(ev.id), n = ev.going || 0;
+  const home = (ev.home || [])[0];
+  return `${setsNow(ev)}
+    <div class="going-row"><button type="button" class="going${mine ? " on" : ""}" data-going="${ev.id}" aria-pressed="${mine}">${mine ? "✓ Going" : "Going?"}</button>${n ? `<span class="hint">${n} going</span>` : ""}
+      ${ev.rides ? `<span class="hint">Rides: ${ev.rides.offer} offered, ${ev.rides.need} wanted</span>` : ""}</div>
+    ${home ? `<div class="home-line">Last ride home: <b>${esc(home.at)}</b>, ${esc(home.mode)} ${esc(home.route)} to ${esc(home.to)}, ${esc(String(home.walk))} m away</div>` : ""}`;
+}
+
+function nightOpen(ev) {
+  if (!(state.mode === "night" || allModes()) || ev.past) return "";
+  const sets = ev.sets || [];
+  const byDay = {};
+  sets.forEach((x) => (byDay[x.date || ""] ||= []).push(x));
+  const setsHtml = sets.length ? `<div class="sets"><b>Set times</b>${Object.entries(byDay).map(([dd, xs]) => `${dd ? `<div class="hint">${esc(fmtShort(dd))}</div>` : ""}<ul>${xs.map((x) => `<li><span class="t">${esc(x.start)}${x.end ? "–" + esc(x.end) : ""}</span> ${esc(x.act)}${x.stage ? ` <span class="hint">${esc(x.stage)}</span>` : ""}</li>`).join("")}</ul>`).join("")}</div>` : "";
+  const home = (ev.home || []).length ? `<div class="home"><b>The way home</b><ul>${ev.home.map((h) => `<li><b>${esc(h.at)}</b> ${esc(h.mode)} ${esc(h.route)} to ${esc(h.to)}, from ${esc(h.stop)} (${esc(String(h.walk))} m)</li>`).join("")}</ul>
+    <p class="hint">The last of each route from stops within a short walk, after the night ends, from Auckland Transport's published timetable. Check <a href="https://at.govt.nz/bus-train-ferry/journey-planner" target="_blank" rel="noopener">AT's journey planner</a> on the night.</p></div>` : "";
+  return `${setsHtml}${home}<div class="rides-box"><button type="button" class="quiet" data-rides="${ev.id}" aria-expanded="false">Rides for this night</button><div class="rides" hidden></div></div>`;
+}
+
+async function goingAct(btn) {
+  if (!member()) { toast("Going needs a member's key. Join on Me first; the count shows, who stays private."); return; }
+  const id = btn.dataset.going, undo = goingMine().includes(id);
+  btn.disabled = true; btn.textContent = "Making your proof…";
+  try {
+    const r = await W.going(id, undo);
+    const ev = state.events.find((e) => e.id === id);
+    if (ev && r.count != null) ev.going = r.count;
+    if (!r.ok && r.why !== "again") toast("That didn't go through. Try again in a minute.");
+  } catch (e) { toast(e.message); }
+  renderList();
+}
+
+async function ridesView(lid, box) {
+  try {
+    const r = await api(`/api/rides/${lid}`);
+    const dirs = { to: "there", from: "home", both: "there and back" };
+    box.innerHTML = (r.rides.map((x) => `<article class="ask ride" data-aid="${x.id}"><p><b>${x.kind === "offer" ? `Offering ${x.seats} ${x.seats === 1 ? "seat" : "seats"}` : "Looking for a ride"}</b> ${esc(dirs[x.dir] || "")}${x.area ? `, ${esc(x.area)}` : ""}</p>
+        <p>${esc(x.text)}</p>
+        <div class="actions">${x.mine ? `<button type="button" class="quiet" data-askthreads="${x.id}">Replies (${x.threads})</button><button type="button" class="linklike" data-askclose="${x.id}">Close it</button>`
+          : `<button type="button" class="quiet" data-askthreads="${x.id}">${x.answered ? "Your thread" : "Answer"}</button>`}</div>
+        <div class="ask-threads" hidden></div></article>`).join("") || `<p class="hint">The board for this night is clear so far.</p>`)
+      + `<div class="ride-add"><label for="rk-${lid}">Post a ride</label>
+        <div class="fields"><div><select id="rk-${lid}"><option value="offer">Offer a ride</option><option value="need">Need a ride</option></select></div>
+          <div><select id="rd-${lid}" aria-label="Which way"><option value="to">There</option><option value="from">Home</option><option value="both">There and back</option></select></div>
+          <div><input id="rs-${lid}" type="number" min="1" max="8" value="1" aria-label="Seats"></div><div><input id="ra-${lid}" placeholder="From or to where" aria-label="Area"></div></div>
+        <button type="button" class="quiet" data-ridepost="${lid}">Post</button><p class="status" role="status"></p>
+        <p class="hint">Answers go through The Wheel between pen names; share a number only when you choose to.</p></div>`;
+  } catch (e) { box.innerHTML = `<p class="status err">${esc(e.message)}</p>`; }
+}
+
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("button, a");
+  if (!t) return;
+  if (t.dataset.going) goingAct(t);
+  if (t.dataset.rides) { const box = $(".rides", t.parentElement); box.hidden = !box.hidden; t.setAttribute("aria-expanded", String(!box.hidden)); if (!box.hidden) ridesView(t.dataset.rides, box); }
+  if (t.dataset.ridepost) {
+    const lid = t.dataset.ridepost, box = t.closest(".rides");
+    if (!member()) { toast("A ride needs a member's key. Join on Me first."); return; }
+    api(`/api/rides/${lid}`, { kind: $(`#rk-${lid}`).value, dir: $(`#rd-${lid}`).value, seats: $(`#rs-${lid}`).value, area: $(`#ra-${lid}`).value })
+      .then(() => { toast("Posted"); ridesView(lid, box); }).catch((err) => ($(".status", t.parentElement).textContent = err.message));
+  }
 });
 

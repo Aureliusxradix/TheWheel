@@ -117,7 +117,7 @@ def asks_open(db, today: str, viewer: str | None) -> list[dict]:
     db.execute("DELETE FROM asks WHERE by_day < ?", ((date.fromisoformat(today) - timedelta(days=30)).isoformat(),))
     db.commit()
     out = []
-    for r in db.execute("SELECT * FROM asks WHERE state='open' AND by_day >= ? ORDER BY by_day", (today,)):
+    for r in db.execute("SELECT * FROM asks WHERE state='open' AND by_day >= ? AND listing_id IS NULL ORDER BY by_day", (today,)):
         a = {"id": r["id"], "kind": r["kind"], "text": r["text"], "area": r["area"], "by": r["by_day"], "day": r["day"],
              "mine": viewer is not None and r["account"] == viewer}
         if a["mine"]:
@@ -183,3 +183,35 @@ def swap_board(db) -> list[dict]:
     for x in rows:
         x["ready"] = x["teach"] >= 1 and x["learn"] >= WORKSHOP_AT
     return sorted(rows, key=lambda x: (-x["ready"], -x["learn"], x["topic"]))
+
+
+# ---------- rides for a night (Night's way home, 2026-10-24): an ask tied to a listing, answered in the same threads ----------
+def clean_ride(b: dict) -> dict:
+    kind = b.get("kind") if b.get("kind") in ("offer", "need") else None
+    way = b.get("dir") if b.get("dir") in ("to", "from", "both") else None
+    if not kind or not way:
+        raise ValueError("Say whether you offer a ride or need one, and which way.")
+    seats = b.get("seats")
+    seats = int(seats) if str(seats or "").isdigit() and 0 < int(seats) <= 8 else 1
+    return {"kind": "ride_" + kind, "dir": way, "seats": seats, "area": _line(b.get("area"), 80) or None,
+            "text": _line(b.get("text"), 200) or ("A ride on offer" if kind == "offer" else "Looking for a ride")}
+
+
+def rides_for(db, listing_id: str, viewer: str | None) -> list[dict]:
+    out = []
+    for r in db.execute("SELECT * FROM asks WHERE listing_id=? AND state='open' ORDER BY day", (listing_id,)):
+        x = {"id": r["id"], "kind": r["kind"][5:], "dir": r["dir"], "seats": r["seats"], "area": r["area"], "text": r["text"],
+             "mine": viewer is not None and r["account"] == viewer}
+        if x["mine"]:
+            x["threads"] = db.execute("SELECT COUNT(DISTINCT responder) n FROM ask_msgs WHERE ask_id=?", (r["id"],)).fetchone()["n"]
+        elif viewer:
+            x["answered"] = bool(db.execute("SELECT 1 FROM ask_msgs WHERE ask_id=? AND responder=?", (r["id"], viewer)).fetchone())
+        out.append(x)
+    return out
+
+
+def ride_counts(db) -> dict:
+    out: dict[str, dict] = {}
+    for r in db.execute("SELECT listing_id, kind, COUNT(*) n FROM asks WHERE listing_id IS NOT NULL AND state='open' GROUP BY listing_id, kind"):
+        out.setdefault(r["listing_id"], {"offer": 0, "need": 0})[r["kind"][5:]] = r["n"]
+    return out
